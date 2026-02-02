@@ -1,8 +1,7 @@
 'use client'
 
 import { useState, useCallback, useEffect } from 'react'
-import { useTranslations } from 'next-intl'
-import { X, Upload, Loader2, FileText, CheckCircle2, AlertCircle, Trash2, Building2, Cpu, Clock, FileSearch, Brain, Save } from 'lucide-react'
+import { X, Upload, Loader2, FileText, CheckCircle2, AlertCircle, Trash2, Building2, Cpu, Clock, FileSearch, Brain, Save, BookOpen, FileBarChart } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { toast } from '@/components/ui/toaster'
@@ -13,14 +12,12 @@ interface UploadModalProps {
   onSuccess: () => void
 }
 
-interface FileWithStatus {
+interface FileItem {
   file: File
   id: string
-  status: 'pending' | 'uploading' | 'extracting' | 'analyzing' | 'saving' | 'success' | 'error'
-  progress: number
-  error?: string
-  analysisId?: string
 }
+
+type AnalysisStatus = 'idle' | 'uploading' | 'extracting' | 'analyzing' | 'saving' | 'success' | 'error'
 
 // Company categories for selection
 const COMPANY_CATEGORIES = {
@@ -40,7 +37,7 @@ const COMPANY_CATEGORIES = {
 
 // Status display configuration - Chinese labels
 const STATUS_CONFIG = {
-  pending: { icon: Clock, color: 'gray', label: '等待中' },
+  idle: { icon: Clock, color: 'gray', label: '待上传' },
   uploading: { icon: Upload, color: 'blue', label: '上传中' },
   extracting: { icon: FileSearch, color: 'indigo', label: '提取文本' },
   analyzing: { icon: Brain, color: 'purple', label: 'AI分析中' },
@@ -50,50 +47,64 @@ const STATUS_CONFIG = {
 }
 
 export default function UploadModal({ isOpen, onClose, onSuccess }: UploadModalProps) {
-  const t = useTranslations()
-  const [files, setFiles] = useState<FileWithStatus[]>([])
-  const [dragActive, setDragActive] = useState(false)
+  // Financial report files (财报)
+  const [financialFiles, setFinancialFiles] = useState<FileItem[]>([])
+  // Research report files (研报)
+  const [researchFiles, setResearchFiles] = useState<FileItem[]>([])
+  
+  const [dragActiveFinancial, setDragActiveFinancial] = useState(false)
+  const [dragActiveResearch, setDragActiveResearch] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [selectedCategory, setSelectedCategory] = useState<'AI_APPLICATION' | 'AI_SUPPLY_CHAIN' | null>(null)
-  const [showProgress, setShowProgress] = useState(false)
+  const [analysisStatus, setAnalysisStatus] = useState<AnalysisStatus>('idle')
+  const [errorMessage, setErrorMessage] = useState<string>('')
 
   // Reset state when modal closes
   useEffect(() => {
     if (!isOpen) {
-      // Don't reset if still processing
       if (!isSubmitting) {
-        setFiles([])
+        setFinancialFiles([])
+        setResearchFiles([])
         setSelectedCategory(null)
-        setShowProgress(false)
+        setAnalysisStatus('idle')
+        setErrorMessage('')
       }
     }
   }, [isOpen, isSubmitting])
 
   if (!isOpen) return null
 
-  const handleDrag = (e: React.DragEvent) => {
+  const handleDragFinancial = (e: React.DragEvent) => {
     e.preventDefault()
     e.stopPropagation()
     if (e.type === 'dragenter' || e.type === 'dragover') {
-      setDragActive(true)
+      setDragActiveFinancial(true)
     } else if (e.type === 'dragleave') {
-      setDragActive(false)
+      setDragActiveFinancial(false)
     }
   }
 
-  const addFiles = (newFiles: FileList | File[]) => {
-    const validFiles: FileWithStatus[] = []
+  const handleDragResearch = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    if (e.type === 'dragenter' || e.type === 'dragover') {
+      setDragActiveResearch(true)
+    } else if (e.type === 'dragleave') {
+      setDragActiveResearch(false)
+    }
+  }
+
+  const addFiles = (newFiles: FileList | File[], type: 'financial' | 'research') => {
+    const validFiles: FileItem[] = []
     const invalidFiles: string[] = []
+    const existingFiles = type === 'financial' ? financialFiles : researchFiles
 
     Array.from(newFiles).forEach((file) => {
       if (file.type === 'application/pdf') {
-        // Check if file already exists
-        if (!files.some(f => f.file.name === file.name)) {
+        if (!existingFiles.some(f => f.file.name === file.name)) {
           validFiles.push({
             file,
             id: `${file.name}_${Date.now()}_${Math.random()}`,
-            status: 'pending',
-            progress: 0,
           })
         }
       } else {
@@ -110,40 +121,59 @@ export default function UploadModal({ isOpen, onClose, onSuccess }: UploadModalP
     }
 
     if (validFiles.length > 0) {
-      setFiles(prev => [...prev, ...validFiles])
+      if (type === 'financial') {
+        setFinancialFiles(prev => [...prev, ...validFiles])
+      } else {
+        setResearchFiles(prev => [...prev, ...validFiles])
+      }
     }
   }
 
-  const handleDrop = (e: React.DragEvent) => {
+  const handleDropFinancial = (e: React.DragEvent) => {
     e.preventDefault()
     e.stopPropagation()
-    setDragActive(false)
-    
+    setDragActiveFinancial(false)
     if (e.dataTransfer.files?.length > 0) {
-      addFiles(e.dataTransfer.files)
+      addFiles(e.dataTransfer.files, 'financial')
     }
   }
 
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleDropResearch = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setDragActiveResearch(false)
+    if (e.dataTransfer.files?.length > 0) {
+      addFiles(e.dataTransfer.files, 'research')
+    }
+  }
+
+  const handleFileSelectFinancial = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files?.length) {
-      addFiles(e.target.files)
+      addFiles(e.target.files, 'financial')
     }
-    e.target.value = '' // Reset to allow re-selecting same files
+    e.target.value = ''
   }
 
-  const removeFile = (id: string) => {
-    setFiles(prev => prev.filter(f => f.id !== id))
+  const handleFileSelectResearch = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files?.length) {
+      addFiles(e.target.files, 'research')
+    }
+    e.target.value = ''
   }
 
-  const updateFileStatus = (id: string, updates: Partial<FileWithStatus>) => {
-    setFiles(prev => prev.map(f => f.id === id ? { ...f, ...updates } : f))
+  const removeFile = (id: string, type: 'financial' | 'research') => {
+    if (type === 'financial') {
+      setFinancialFiles(prev => prev.filter(f => f.id !== id))
+    } else {
+      setResearchFiles(prev => prev.filter(f => f.id !== id))
+    }
   }
 
   const handleSubmit = async () => {
-    if (files.length === 0) {
+    if (financialFiles.length === 0) {
       toast({
         title: '错误',
-        description: '请选择要上传的文件',
+        description: '请至少上传一份财报文件',
         variant: 'destructive',
       })
       return
@@ -159,135 +189,93 @@ export default function UploadModal({ isOpen, onClose, onSuccess }: UploadModalP
     }
 
     setIsSubmitting(true)
-    setShowProgress(true)
+    setAnalysisStatus('uploading')
+    setErrorMessage('')
 
-    // Process files sequentially to show clear progress
-    const results: { success: number; failed: number } = { success: 0, failed: 0 }
-
-    for (let i = 0; i < files.length; i++) {
-      const fileItem = files[i]
+    try {
+      const formData = new FormData()
       
-      try {
-        // Step 1: Uploading
-        updateFileStatus(fileItem.id, { status: 'uploading', progress: 20 })
-        
-        const formData = new FormData()
-        formData.append('file', fileItem.file)
-        formData.append('category', selectedCategory)
-
-        // Step 2: Extracting (simulated - happens on server)
-        setTimeout(() => {
-          updateFileStatus(fileItem.id, { status: 'extracting', progress: 40 })
-        }, 500)
-
-        // Step 3: Analyzing (simulated - happens on server)
-        setTimeout(() => {
-          updateFileStatus(fileItem.id, { status: 'analyzing', progress: 70 })
-        }, 2000)
-
-        const response = await fetch('/api/reports/upload', {
-          method: 'POST',
-          body: formData,
-        })
-
-        if (!response.ok) {
-          const result = await response.json()
-          throw new Error(result.error || '上传失败')
-        }
-
-        const result = await response.json()
-        
-        // Step 4: Saving
-        updateFileStatus(fileItem.id, { status: 'saving', progress: 90 })
-        
-        // Small delay to show saving state
-        await new Promise(resolve => setTimeout(resolve, 300))
-        
-        // Step 5: Success
-        updateFileStatus(fileItem.id, { 
-          status: 'success', 
-          progress: 100,
-          analysisId: result.analysis_id 
-        })
-        
-        results.success++
-        
-        // Show individual success toast
-        toast({
-          title: `✅ ${fileItem.file.name}`,
-          description: `${result.metadata?.company_name || '财报'} 分析完成`,
-        })
-        
-      } catch (error: any) {
-        results.failed++
-        updateFileStatus(fileItem.id, { 
-          status: 'error', 
-          progress: 0,
-          error: error.message || '分析失败'
-        })
-        
-        // Show individual error toast
-        toast({
-          title: `❌ ${fileItem.file.name}`,
-          description: error.message || '分析失败',
-          variant: 'destructive',
-        })
-        
-        console.error(`Failed to process ${fileItem.file.name}:`, error)
-      }
-    }
-
-    // Show final summary toast
-    if (results.success > 0) {
-      toast({
-        title: `📊 分析完成`,
-        description: `成功分析 ${results.success} 份财报${results.failed > 0 ? `，${results.failed} 份失败` : ''}`,
+      // Add all financial report files
+      financialFiles.forEach((item, index) => {
+        formData.append(`financialFiles`, item.file)
       })
-    }
+      
+      // Add all research report files
+      researchFiles.forEach((item, index) => {
+        formData.append(`researchFiles`, item.file)
+      })
+      
+      formData.append('category', selectedCategory)
 
-    setIsSubmitting(false)
-    
-    // Trigger refresh
-    onSuccess()
-    
-    // Auto close after 2 seconds if all successful
-    if (results.failed === 0) {
+      // Update status as we progress
+      setTimeout(() => setAnalysisStatus('extracting'), 1000)
+      setTimeout(() => setAnalysisStatus('analyzing'), 3000)
+
+      const response = await fetch('/api/reports/upload', {
+        method: 'POST',
+        body: formData,
+      })
+
+      if (!response.ok) {
+        const result = await response.json()
+        throw new Error(result.error || '上传失败')
+      }
+
+      const result = await response.json()
+      
+      setAnalysisStatus('saving')
+      await new Promise(resolve => setTimeout(resolve, 500))
+      
+      setAnalysisStatus('success')
+      
+      toast({
+        title: '✅ 分析完成',
+        description: `${result.metadata?.company_name || '公司'} 财报分析已完成`,
+      })
+      
+      onSuccess()
+      
+      // Auto close after success
       setTimeout(() => {
-        setFiles([])
+        setFinancialFiles([])
+        setResearchFiles([])
         setSelectedCategory(null)
-        setShowProgress(false)
+        setAnalysisStatus('idle')
         onClose()
       }, 2000)
+      
+    } catch (error: any) {
+      setAnalysisStatus('error')
+      setErrorMessage(error.message || '分析失败')
+      
+      toast({
+        title: '❌ 分析失败',
+        description: error.message || '分析失败',
+        variant: 'destructive',
+      })
+    } finally {
+      setIsSubmitting(false)
     }
   }
 
-  const totalSize = files.reduce((acc, f) => acc + f.file.size, 0)
-  const completedCount = files.filter(f => f.status === 'success').length
-  const errorCount = files.filter(f => f.status === 'error').length
-  const processingCount = files.filter(f => !['pending', 'success', 'error'].includes(f.status)).length
+  const totalFinancialSize = financialFiles.reduce((acc, f) => acc + f.file.size, 0)
+  const totalResearchSize = researchFiles.reduce((acc, f) => acc + f.file.size, 0)
+  const isProcessing = ['uploading', 'extracting', 'analyzing', 'saving'].includes(analysisStatus)
 
-  const getStatusIcon = (status: FileWithStatus['status']) => {
-    const config = STATUS_CONFIG[status]
-    const Icon = config.icon
-    return <Icon className={`h-4 w-4 text-${config.color}-600 ${status === 'analyzing' ? 'animate-pulse' : ''} ${['uploading', 'extracting', 'saving'].includes(status) ? 'animate-spin' : ''}`} />
-  }
-
-  const getStatusColor = (status: FileWithStatus['status']) => {
-    return STATUS_CONFIG[status].color
-  }
+  const StatusIcon = STATUS_CONFIG[analysisStatus].icon
 
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <Card className="w-full max-w-2xl bg-white shadow-2xl border-0 overflow-hidden max-h-[90vh] flex flex-col">
+      <Card className="w-full max-w-3xl bg-white shadow-2xl border-0 overflow-hidden max-h-[90vh] flex flex-col">
         {/* Header with gradient */}
         <div className="bg-gradient-to-r from-blue-600 to-indigo-600 px-6 py-5 flex-shrink-0">
           <div className="flex items-center justify-between">
             <div>
-              <h2 className="text-xl font-bold text-white">上传财报</h2>
+              <h2 className="text-xl font-bold text-white">单公司财报分析</h2>
               <p className="text-blue-100 text-sm mt-1">
-                {showProgress 
-                  ? `正在处理 ${processingCount} / ${files.length} 份财报...`
-                  : '支持批量上传PDF格式财报文件'
+                {isProcessing 
+                  ? STATUS_CONFIG[analysisStatus].label + '...'
+                  : '上传财报和研报进行对比分析'
                 }
               </p>
             </div>
@@ -302,26 +290,47 @@ export default function UploadModal({ isOpen, onClose, onSuccess }: UploadModalP
             </Button>
           </div>
           
-          {/* Overall progress bar */}
-          {showProgress && files.length > 0 && (
-            <div className="mt-4">
-              <div className="flex justify-between text-xs text-blue-100 mb-1">
-                <span>{completedCount} 已完成</span>
-                <span>{errorCount > 0 ? `${errorCount} 失败` : ''}</span>
+          {/* Progress indicator */}
+          {isProcessing && (
+            <div className="mt-4 flex items-center gap-3">
+              <Loader2 className="h-5 w-5 animate-spin text-white" />
+              <div className="flex-1">
+                <div className="h-2 bg-white/20 rounded-full overflow-hidden">
+                  <div 
+                    className="h-full bg-white transition-all duration-500 ease-out"
+                    style={{ 
+                      width: analysisStatus === 'uploading' ? '25%' 
+                           : analysisStatus === 'extracting' ? '50%' 
+                           : analysisStatus === 'analyzing' ? '75%' 
+                           : analysisStatus === 'saving' ? '90%' 
+                           : '0%' 
+                    }}
+                  />
+                </div>
               </div>
-              <div className="h-2 bg-white/20 rounded-full overflow-hidden">
-                <div 
-                  className="h-full bg-white transition-all duration-500 ease-out"
-                  style={{ width: `${(completedCount / files.length) * 100}%` }}
-                />
-              </div>
+            </div>
+          )}
+          
+          {/* Success indicator */}
+          {analysisStatus === 'success' && (
+            <div className="mt-4 flex items-center gap-2 text-white">
+              <CheckCircle2 className="h-5 w-5" />
+              <span>分析完成！</span>
+            </div>
+          )}
+          
+          {/* Error indicator */}
+          {analysisStatus === 'error' && (
+            <div className="mt-4 flex items-center gap-2 text-red-200">
+              <AlertCircle className="h-5 w-5" />
+              <span>{errorMessage}</span>
             </div>
           )}
         </div>
 
         <div className="p-6 space-y-5 overflow-y-auto flex-1">
-          {/* Company Category Selection - Hide during processing */}
-          {!showProgress && (
+          {/* Company Category Selection */}
+          {!isProcessing && analysisStatus !== 'success' && (
             <div className="space-y-3">
               <label className="text-sm font-medium text-gray-700">
                 公司分类 <span className="text-red-500">*</span>
@@ -364,154 +373,168 @@ export default function UploadModal({ isOpen, onClose, onSuccess }: UploadModalP
                   )
                 })}
               </div>
-              <p className="text-xs text-gray-500">
-                选择公司分类以使用对应的分析模板
-              </p>
             </div>
           )}
 
-          {/* Drop Zone - Hide during processing */}
-          {!showProgress && (
-            <div
-              onDragEnter={handleDrag}
-              onDragLeave={handleDrag}
-              onDragOver={handleDrag}
-              onDrop={handleDrop}
-            >
-              <div 
-                className={`relative border-2 border-dashed rounded-xl p-8 text-center transition-all ${
-                  dragActive 
-                    ? 'border-blue-500 bg-blue-50 scale-[1.02]' 
-                    : 'border-gray-200 hover:border-blue-400 hover:bg-gray-50'
-                }`}
-              >
-                <input
-                  type="file"
-                  accept=".pdf"
-                  multiple
-                  onChange={handleFileSelect}
-                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                />
-                <div className="space-y-3">
-                  <div className={`mx-auto h-16 w-16 rounded-full flex items-center justify-center transition-all ${
-                    dragActive ? 'bg-blue-200 scale-110' : 'bg-gradient-to-br from-blue-100 to-indigo-100'
-                  }`}>
-                    <Upload className={`h-8 w-8 transition-colors ${dragActive ? 'text-blue-600' : 'text-blue-500'}`} />
-                  </div>
-                  <div>
-                    <p className="text-lg font-medium text-gray-900">
-                      拖拽文件到此处或 <span className="text-blue-600">点击选择</span>
-                    </p>
-                    <p className="text-sm text-gray-500 mt-1">
-                      支持批量上传PDF格式财报文件
-                    </p>
+          {/* Two Column Upload Areas */}
+          {!isProcessing && analysisStatus !== 'success' && (
+            <div className="grid grid-cols-2 gap-4">
+              {/* Financial Report Upload */}
+              <div className="space-y-3">
+                <div className="flex items-center gap-2">
+                  <FileBarChart className="h-5 w-5 text-blue-600" />
+                  <label className="text-sm font-medium text-gray-700">
+                    财报文件 <span className="text-red-500">*</span>
+                  </label>
+                </div>
+                <p className="text-xs text-gray-500">
+                  上传公司10-K、10-Q等财务报告
+                </p>
+                
+                <div
+                  onDragEnter={handleDragFinancial}
+                  onDragLeave={handleDragFinancial}
+                  onDragOver={handleDragFinancial}
+                  onDrop={handleDropFinancial}
+                >
+                  <div 
+                    className={`relative border-2 border-dashed rounded-xl p-4 text-center transition-all ${
+                      dragActiveFinancial 
+                        ? 'border-blue-500 bg-blue-50 scale-[1.02]' 
+                        : 'border-gray-200 hover:border-blue-400 hover:bg-gray-50'
+                    }`}
+                  >
+                    <input
+                      type="file"
+                      accept=".pdf"
+                      multiple
+                      onChange={handleFileSelectFinancial}
+                      className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                    />
+                    <div className="space-y-2">
+                      <div className={`mx-auto h-12 w-12 rounded-full flex items-center justify-center ${
+                        dragActiveFinancial ? 'bg-blue-200' : 'bg-blue-100'
+                      }`}>
+                        <FileBarChart className="h-6 w-6 text-blue-600" />
+                      </div>
+                      <p className="text-sm text-gray-600">
+                        拖拽或<span className="text-blue-600">点击选择</span>
+                      </p>
+                    </div>
                   </div>
                 </div>
+                
+                {/* Financial Files List */}
+                {financialFiles.length > 0 && (
+                  <div className="space-y-2 max-h-32 overflow-y-auto">
+                    {financialFiles.map((item) => (
+                      <div key={item.id} className="flex items-center gap-2 p-2 bg-blue-50 rounded-lg">
+                        <FileText className="h-4 w-4 text-blue-600 flex-shrink-0" />
+                        <span className="text-xs text-gray-700 truncate flex-1">{item.file.name}</span>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-6 w-6 text-gray-400 hover:text-red-600"
+                          onClick={() => removeFile(item.id, 'financial')}
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </Button>
+                      </div>
+                    ))}
+                    <p className="text-xs text-gray-500 text-right">
+                      {financialFiles.length} 个文件，共 {(totalFinancialSize / 1024 / 1024).toFixed(2)} MB
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              {/* Research Report Upload */}
+              <div className="space-y-3">
+                <div className="flex items-center gap-2">
+                  <BookOpen className="h-5 w-5 text-purple-600" />
+                  <label className="text-sm font-medium text-gray-700">
+                    研报文件 <span className="text-gray-400">(可选)</span>
+                  </label>
+                </div>
+                <p className="text-xs text-gray-500">
+                  上传券商研报，用于对比市场预期
+                </p>
+                
+                <div
+                  onDragEnter={handleDragResearch}
+                  onDragLeave={handleDragResearch}
+                  onDragOver={handleDragResearch}
+                  onDrop={handleDropResearch}
+                >
+                  <div 
+                    className={`relative border-2 border-dashed rounded-xl p-4 text-center transition-all ${
+                      dragActiveResearch 
+                        ? 'border-purple-500 bg-purple-50 scale-[1.02]' 
+                        : 'border-gray-200 hover:border-purple-400 hover:bg-gray-50'
+                    }`}
+                  >
+                    <input
+                      type="file"
+                      accept=".pdf"
+                      multiple
+                      onChange={handleFileSelectResearch}
+                      className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                    />
+                    <div className="space-y-2">
+                      <div className={`mx-auto h-12 w-12 rounded-full flex items-center justify-center ${
+                        dragActiveResearch ? 'bg-purple-200' : 'bg-purple-100'
+                      }`}>
+                        <BookOpen className="h-6 w-6 text-purple-600" />
+                      </div>
+                      <p className="text-sm text-gray-600">
+                        拖拽或<span className="text-purple-600">点击选择</span>
+                      </p>
+                    </div>
+                  </div>
+                </div>
+                
+                {/* Research Files List */}
+                {researchFiles.length > 0 && (
+                  <div className="space-y-2 max-h-32 overflow-y-auto">
+                    {researchFiles.map((item) => (
+                      <div key={item.id} className="flex items-center gap-2 p-2 bg-purple-50 rounded-lg">
+                        <BookOpen className="h-4 w-4 text-purple-600 flex-shrink-0" />
+                        <span className="text-xs text-gray-700 truncate flex-1">{item.file.name}</span>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-6 w-6 text-gray-400 hover:text-red-600"
+                          onClick={() => removeFile(item.id, 'research')}
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </Button>
+                      </div>
+                    ))}
+                    <p className="text-xs text-gray-500 text-right">
+                      {researchFiles.length} 个文件，共 {(totalResearchSize / 1024 / 1024).toFixed(2)} MB
+                    </p>
+                  </div>
+                )}
               </div>
             </div>
           )}
 
-          {/* File List with Progress */}
-          {files.length > 0 && (
-            <div className="space-y-3">
-              <div className="flex items-center justify-between text-sm">
-                <span className="font-medium text-gray-700">
-                  {showProgress ? '处理状态' : `已选择 ${files.length} 个文件`}
-                </span>
-                {!showProgress && (
-                  <span className="text-gray-500">
-                    共 {(totalSize / 1024 / 1024).toFixed(2)} MB
-                  </span>
-                )}
-              </div>
-              
-              <div className="space-y-2 max-h-60 overflow-y-auto">
-                {files.map((fileItem) => {
-                  const statusConfig = STATUS_CONFIG[fileItem.status]
-                  const StatusIcon = statusConfig.icon
-                  
-                  return (
-                    <div 
-                      key={fileItem.id} 
-                      className={`relative p-3 rounded-xl border transition-all ${
-                        fileItem.status === 'error' 
-                          ? 'border-red-200 bg-red-50'
-                          : fileItem.status === 'success'
-                            ? 'border-green-200 bg-green-50'
-                            : showProgress
-                              ? 'border-blue-200 bg-blue-50'
-                              : 'border-gray-200 bg-gray-50'
-                      }`}
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className={`h-10 w-10 rounded-lg flex items-center justify-center ${
-                          fileItem.status === 'error'
-                            ? 'bg-red-100'
-                            : fileItem.status === 'success'
-                              ? 'bg-green-100'
-                              : showProgress
-                                ? 'bg-blue-100'
-                                : 'bg-white'
-                        }`}>
-                          {showProgress ? (
-                            <StatusIcon className={`h-5 w-5 text-${statusConfig.color}-600 ${
-                              ['uploading', 'extracting', 'saving'].includes(fileItem.status) ? 'animate-spin' : ''
-                            } ${fileItem.status === 'analyzing' ? 'animate-pulse' : ''}`} />
-                          ) : (
-                            <FileText className="h-5 w-5 text-gray-600" />
-                          )}
-                        </div>
-                        
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium text-gray-900 truncate">
-                            {fileItem.file.name}
-                          </p>
-                          <div className="flex items-center gap-2 mt-0.5">
-                            {showProgress ? (
-                              <>
-                                <span className={`text-xs font-medium text-${statusConfig.color}-600`}>
-                                  {statusConfig.label}
-                                </span>
-                                {fileItem.error && (
-                                  <span className="text-xs text-red-600 truncate">
-                                    - {fileItem.error}
-                                  </span>
-                                )}
-                              </>
-                            ) : (
-                              <span className="text-xs text-gray-500">
-                                {(fileItem.file.size / 1024 / 1024).toFixed(2)} MB
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                        
-                        {!showProgress && (
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8 text-gray-400 hover:text-red-600"
-                            onClick={() => removeFile(fileItem.id)}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        )}
-                      </div>
-                      
-                      {/* Progress bar for each file */}
-                      {showProgress && !['pending', 'success', 'error'].includes(fileItem.status) && (
-                        <div className="mt-2">
-                          <div className="h-1.5 bg-gray-200 rounded-full overflow-hidden">
-                            <div 
-                              className={`h-full bg-${statusConfig.color}-500 transition-all duration-500 ease-out`}
-                              style={{ width: `${fileItem.progress}%` }}
-                            />
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  )
-                })}
+          {/* Analysis Info Box */}
+          {!isProcessing && analysisStatus !== 'success' && (
+            <div className="p-4 bg-amber-50 rounded-xl border border-amber-200">
+              <div className="flex items-start gap-3">
+                <div className="h-8 w-8 rounded-lg bg-amber-100 flex items-center justify-center flex-shrink-0">
+                  <Brain className="h-4 w-4 text-amber-600" />
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-amber-900">分析说明</p>
+                  <ul className="text-xs text-amber-700 mt-1 space-y-1">
+                    <li>• 财报文件必须上传，研报文件可选</li>
+                    <li>• 如有研报，AI将对比财报实际数据与研报预期</li>
+                    <li>• 支持多个文件合并分析（如10-K + Earnings Call）</li>
+                    <li>• 分析过程约需1-3分钟，请耐心等待</li>
+                  </ul>
+                </div>
               </div>
             </div>
           )}
@@ -519,25 +542,47 @@ export default function UploadModal({ isOpen, onClose, onSuccess }: UploadModalP
 
         {/* Footer */}
         <div className="px-6 py-4 bg-gray-50 border-t flex items-center justify-between flex-shrink-0">
-          {showProgress ? (
+          {analysisStatus === 'success' ? (
             <>
-              <div className="text-sm text-gray-600">
-                {completedCount === files.length 
-                  ? '✅ 所有财报处理完成！'
-                  : `正在处理 ${processingCount} / ${files.length} 份财报...`
-                }
+              <div className="text-sm text-green-600 flex items-center gap-2">
+                <CheckCircle2 className="h-4 w-4" />
+                分析完成！
               </div>
               <Button
                 onClick={() => {
-                  setFiles([])
+                  setFinancialFiles([])
+                  setResearchFiles([])
                   setSelectedCategory(null)
-                  setShowProgress(false)
+                  setAnalysisStatus('idle')
                   onClose()
                 }}
-                disabled={isSubmitting}
-                variant={completedCount === files.length ? 'default' : 'outline'}
               >
-                {completedCount === files.length ? '完成' : '关闭'}
+                完成
+              </Button>
+            </>
+          ) : analysisStatus === 'error' ? (
+            <>
+              <div className="text-sm text-red-600 flex items-center gap-2">
+                <AlertCircle className="h-4 w-4" />
+                {errorMessage}
+              </div>
+              <div className="flex gap-2">
+                <Button variant="outline" onClick={() => setAnalysisStatus('idle')}>
+                  重试
+                </Button>
+                <Button variant="outline" onClick={onClose}>
+                  关闭
+                </Button>
+              </div>
+            </>
+          ) : isProcessing ? (
+            <>
+              <div className="text-sm text-gray-600 flex items-center gap-2">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                {STATUS_CONFIG[analysisStatus].label}...
+              </div>
+              <Button variant="outline" disabled>
+                处理中...
               </Button>
             </>
           ) : (
@@ -547,20 +592,11 @@ export default function UploadModal({ isOpen, onClose, onSuccess }: UploadModalP
               </Button>
               <Button
                 onClick={handleSubmit}
-                disabled={files.length === 0 || !selectedCategory || isSubmitting}
+                disabled={financialFiles.length === 0 || !selectedCategory || isSubmitting}
                 className="bg-gradient-to-r from-blue-600 to-indigo-600 min-w-[140px]"
               >
-                {isSubmitting ? (
-                  <>
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    处理中...
-                  </>
-                ) : (
-                  <>
-                    <Upload className="h-4 w-4 mr-2" />
-                    开始分析
-                  </>
-                )}
+                <Upload className="h-4 w-4 mr-2" />
+                开始分析
               </Button>
             </>
           )}

@@ -19,16 +19,28 @@ export async function POST(request: NextRequest) {
     }
 
     const formData = await request.formData()
-    const file = formData.get('file') as File
+    
+    // Get financial report files (required)
+    const financialFiles = formData.getAll('financialFiles') as File[]
+    // Get research report files (optional)
+    const researchFiles = formData.getAll('researchFiles') as File[]
     const category = formData.get('category') as string | null
 
-    if (!file) {
-      return NextResponse.json({ error: '未上传文件' }, { status: 400 })
+    // Backward compatibility: also check for single 'file' field
+    const singleFile = formData.get('file') as File | null
+    if (singleFile && financialFiles.length === 0) {
+      financialFiles.push(singleFile)
     }
 
-    // Check file type
-    if (file.type !== 'application/pdf') {
-      return NextResponse.json({ error: '仅支持PDF文件' }, { status: 400 })
+    if (financialFiles.length === 0) {
+      return NextResponse.json({ error: '请上传至少一份财报文件' }, { status: 400 })
+    }
+
+    // Validate all files are PDFs
+    for (const file of [...financialFiles, ...researchFiles]) {
+      if (file.type !== 'application/pdf') {
+        return NextResponse.json({ error: `文件 ${file.name} 不是PDF格式` }, { status: 400 })
+      }
     }
 
     // Validate category
@@ -37,28 +49,45 @@ export async function POST(request: NextRequest) {
       ? category as 'AI_APPLICATION' | 'AI_SUPPLY_CHAIN'
       : null
 
-    console.log(`[上传] 处理文件: ${file.name}, 分类: ${selectedCategory || '自动检测'}`)
+    console.log(`[上传] 处理财报: ${financialFiles.length} 个文件, 研报: ${researchFiles.length} 个文件, 分类: ${selectedCategory || '自动检测'}`)
 
-    // Read file buffer
-    const buffer = Buffer.from(await file.arrayBuffer())
-
-    // Extract text from PDF
-    console.log('[上传] 正在提取PDF文本...')
-    const reportText = await extractTextFromDocument(buffer, file.type)
-
-    if (!reportText || reportText.length < 100) {
-      return NextResponse.json({ error: '无法从PDF中提取文本' }, { status: 400 })
+    // Extract text from all financial reports
+    console.log('[上传] 正在提取财报文本...')
+    let financialText = ''
+    for (const file of financialFiles) {
+      const buffer = Buffer.from(await file.arrayBuffer())
+      const text = await extractTextFromDocument(buffer, file.type)
+      if (text) {
+        financialText += `\n\n=== 财报文件: ${file.name} ===\n\n${text}`
+      }
     }
 
-    console.log(`[上传] 已提取 ${reportText.length} 字符`)
+    if (!financialText || financialText.length < 100) {
+      return NextResponse.json({ error: '无法从财报PDF中提取文本' }, { status: 400 })
+    }
 
-    // Step 1: Extract metadata using AI
+    console.log(`[上传] 已提取财报文本 ${financialText.length} 字符`)
+
+    // Extract text from research reports (if any)
+    let researchText = ''
+    if (researchFiles.length > 0) {
+      console.log('[上传] 正在提取研报文本...')
+      for (const file of researchFiles) {
+        const buffer = Buffer.from(await file.arrayBuffer())
+        const text = await extractTextFromDocument(buffer, file.type)
+        if (text) {
+          researchText += `\n\n=== 研报文件: ${file.name} ===\n\n${text}`
+        }
+      }
+      console.log(`[上传] 已提取研报文本 ${researchText.length} 字符`)
+    }
+
+    // Step 1: Extract metadata using AI (from financial report)
     console.log('[上传] 正在使用AI提取元数据...')
-    const metadata = await extractMetadataFromReport(reportText)
+    const metadata = await extractMetadataFromReport(financialText)
     console.log('[上传] 提取的元数据:', metadata)
 
     // Create processing entry so frontend can see progress
-    // Only create ONE entry that will be updated when complete
     const processingEntry = await analysisStore.add({
       company_name: metadata.company_name,
       company_symbol: metadata.company_symbol,
@@ -68,7 +97,8 @@ export async function POST(request: NextRequest) {
       filing_date: metadata.filing_date,
       created_at: new Date().toISOString(),
       processed: false,
-      processing: true,  // Mark as processing
+      processing: true,
+      has_research_report: researchFiles.length > 0, // Track if research report was provided
     })
     processingId = processingEntry.id
     console.log(`[上传] 创建处理记录: ${processingId}`)
@@ -78,22 +108,25 @@ export async function POST(request: NextRequest) {
     
     let analysis
     try {
-      analysis = await analyzeFinancialReport(reportText, {
-        company: metadata.company_name,
-        symbol: metadata.company_symbol,
-        period: metadata.fiscal_quarter 
-          ? `Q${metadata.fiscal_quarter} ${metadata.fiscal_year}` 
-          : `FY ${metadata.fiscal_year}`,
-        fiscalYear: metadata.fiscal_year,
-        fiscalQuarter: metadata.fiscal_quarter || undefined,
-        consensus: {
-          revenue: metadata.revenue || undefined,
-          eps: metadata.eps || undefined,
-          operatingIncome: metadata.operating_income || undefined,
+      analysis = await analyzeFinancialReport(
+        financialText, 
+        {
+          company: metadata.company_name,
+          symbol: metadata.company_symbol,
+          period: metadata.fiscal_quarter 
+            ? `Q${metadata.fiscal_quarter} ${metadata.fiscal_year}` 
+            : `FY ${metadata.fiscal_year}`,
+          fiscalYear: metadata.fiscal_year,
+          fiscalQuarter: metadata.fiscal_quarter || undefined,
+          consensus: {
+            revenue: metadata.revenue || undefined,
+            eps: metadata.eps || undefined,
+            operatingIncome: metadata.operating_income || undefined,
+          },
+          category: selectedCategory,
         },
-        // Pass the selected category to override auto-detection
-        category: selectedCategory,
-      })
+        researchText || undefined // Pass research report text if available
+      )
     } catch (analysisError: any) {
       console.error('[上传] AI分析失败:', analysisError)
       
@@ -110,11 +143,11 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Update the SAME record as completed (not create a new one)
+    // Update the SAME record as completed
     const storedAnalysis = await analysisStore.update(processingId, {
       processed: true,
       processing: false,
-      error: undefined, // Clear any previous error
+      error: undefined,
       ...analysis,
     })
 

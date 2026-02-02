@@ -84,15 +84,24 @@ export interface AnalysisResult {
     recommendation: string      // 建议
   }
   
+  // 7) 研报对比分析 (可选，仅当有研报时)
+  research_comparison?: {
+    consensus_source: string     // 预期来源（研报机构）
+    key_differences: string[]    // 关键差异点
+    beat_miss_summary: string    // Beat/Miss总结
+    analyst_blind_spots: string  // 分析师盲点
+  }
+  
   // 元数据
   metadata?: {
     company_category: string
     analysis_timestamp: string
     prompt_version: string
+    has_research_report?: boolean
   }
 }
 
-// JSON输出格式系统提示 - 中文版
+// JSON输出格式系统提示 - 中文版（无研报）
 const JSON_OUTPUT_INSTRUCTION = `
 
 请严格按照以下JSON格式输出分析结果，所有内容必须使用中文：
@@ -175,9 +184,106 @@ const JSON_OUTPUT_INSTRUCTION = `
 4. 必须严格遵循JSON格式
 5. 所有分析内容必须使用中文输出`
 
+// JSON输出格式系统提示 - 中文版（有研报对比）
+const JSON_OUTPUT_INSTRUCTION_WITH_RESEARCH = `
+
+请严格按照以下JSON格式输出分析结果，所有内容必须使用中文。
+重要：你需要将财报实际数据与研报中的市场预期进行对比分析。
+
+{
+  "one_line_conclusion": "一句话结论：Beat/Miss + 最关键驱动 + 最大风险 + 与研报预期的核心差异",
+  
+  "results_summary": "结果层概要（重点说明财报实际 vs 研报预期）",
+  
+  "results_table": [
+    {"metric": "营收 (Revenue)", "actual": "$XXB (财报实际)", "consensus": "~$XXB (研报预期)", "delta": "+X%", "assessment": "超预期/不及预期/符合预期 (与研报预期对比原因)"},
+    {"metric": "每股收益 (EPS)", "actual": "$X.XX", "consensus": "~$X.XX (研报预期)", "delta": "+X%", "assessment": "超预期/不及预期/符合预期"},
+    {"metric": "营业利润 (Operating Income)", "actual": "$XXB", "consensus": "~$XXB (研报预期)", "delta": "+X%", "assessment": "超预期/不及预期/符合预期"},
+    {"metric": "毛利率 (Gross Margin)", "actual": "XX%", "consensus": "~XX% (研报预期)", "delta": "+Xbps", "assessment": "改善/恶化"},
+    {"metric": "营业利润率 (Operating Margin)", "actual": "XX%", "consensus": "~XX% (研报预期)", "delta": "+Xbps", "assessment": "改善/恶化"},
+    {"metric": "指引 (下季度/全年)", "actual": "$XX-XXB", "consensus": "~$XXB (研报预期)", "delta": "+X%", "assessment": "大幅超预期/不及预期"}
+  ],
+  
+  "results_explanation": "关键解释：营收超预期主要由...驱动；与研报预期的差异主要来自...",
+  
+  "drivers_summary": "驱动层概要",
+  
+  "drivers": {
+    "demand": {
+      "category": "A",
+      "title": "需求/量",
+      "change": "具体变化描述（指标 + 方向 + 幅度）",
+      "magnitude": "幅度（如 +X% YoY）",
+      "reason": "原因分析（产品/算法/渠道/供给/组织）"
+    },
+    "monetization": {
+      "category": "B",
+      "title": "变现/单价",
+      "change": "具体变化描述",
+      "magnitude": "幅度",
+      "reason": "原因分析"
+    },
+    "efficiency": {
+      "category": "C",
+      "title": "内部效率",
+      "change": "具体变化描述",
+      "magnitude": "幅度",
+      "reason": "原因分析"
+    }
+  },
+  
+  "investment_roi": {
+    "capex_change": "资本支出变化描述",
+    "opex_change": "运营支出变化描述",
+    "investment_direction": "投入方向：算力/人才/渠道/供应链/并购",
+    "roi_evidence": ["ROI证据1", "ROI证据2", "ROI证据3"],
+    "management_commitment": "管理层底线承诺"
+  },
+  
+  "sustainability_risks": {
+    "sustainable_drivers": ["可持续驱动1", "可持续驱动2", "可持续驱动3"],
+    "main_risks": ["主要风险1：描述", "主要风险2：描述", "主要风险3：描述"],
+    "checkpoints": ["检查点1", "检查点2", "检查点3"]
+  },
+  
+  "model_impact": {
+    "revenue_adjustment": "收入假设调整",
+    "capex_adjustment": "资本支出假设调整",
+    "valuation_change": "估值变化",
+    "logic_chain": "逻辑链：财报信号 → 假设变化 → 估值变化"
+  },
+  
+  "final_judgment": {
+    "confidence": "我们更有信心的点...",
+    "concerns": "我们更担心的点...",
+    "net_impact": "更强/更弱/不变",
+    "recommendation": "投资建议"
+  },
+  
+  "research_comparison": {
+    "consensus_source": "研报来源机构（如：高盛、摩根士丹利、中金等）",
+    "key_differences": [
+      "差异点1：研报预期XX，实际YY，差异原因...",
+      "差异点2：研报预期XX，实际YY，差异原因...",
+      "差异点3：研报预期XX，实际YY，差异原因..."
+    ],
+    "beat_miss_summary": "总体Beat/Miss情况：X项超预期，Y项不及预期，Z项符合预期",
+    "analyst_blind_spots": "分析师可能忽略的点：..."
+  }
+}
+
+重要要求：
+1. results_table必须包含至少5-7行关键指标，consensus列必须使用研报中的预期数据
+2. 每个字段都必须填写完整内容，不能留空
+3. 所有数字必须是具体的，不能用占位符
+4. 必须严格遵循JSON格式
+5. 所有分析内容必须使用中文输出
+6. research_comparison必须详细对比财报实际与研报预期的差异`
+
 export async function analyzeFinancialReport(
   reportText: string,
-  metadata: ReportMetadata
+  metadata: ReportMetadata,
+  researchReportText?: string  // 可选的研报文本
 ): Promise<AnalysisResult> {
   // Determine company category - use override if provided, otherwise auto-detect
   let companyInfo: {
@@ -207,11 +313,181 @@ export async function analyzeFinancialReport(
     companyInfo = getCompanyCategory(metadata.symbol || metadata.company)
   }
   
-  console.log(`正在分析 ${metadata.company} (${metadata.symbol})，分类为 ${companyInfo.categoryName}`)
+  const hasResearchReport = !!researchReportText && researchReportText.length > 100
+  console.log(`正在分析 ${metadata.company} (${metadata.symbol})，分类为 ${companyInfo.categoryName}，${hasResearchReport ? '包含研报对比' : '无研报'}`)
   
-  // Build complete system prompt
-  const systemPrompt = companyInfo.prompt + JSON_OUTPUT_INSTRUCTION
+  // Build complete system prompt based on whether we have research report
+  const jsonInstruction = hasResearchReport ? JSON_OUTPUT_INSTRUCTION_WITH_RESEARCH : JSON_OUTPUT_INSTRUCTION
+  const systemPrompt = companyInfo.prompt + jsonInstruction
   
+  // Build user message with optional research report
+  let userMessage = `公司：${metadata.company} (${metadata.symbol})
+报告期：${metadata.period}
+公司分类：${companyInfo.categoryName}
+市场预期：${JSON.stringify(metadata.consensus || {}, null, 2)}
+
+=== 财报内容 ===
+${reportText}`
+
+  if (hasResearchReport) {
+    userMessage += `
+
+=== 研报内容（市场预期来源）===
+${researchReportText}
+
+请重点对比财报实际数据与研报中的市场预期，分析Beat/Miss情况及原因。`
+  }
+
+  userMessage += `
+
+请严格按JSON格式输出完整分析，确保每个字段都有详细内容。results_table必须包含5-7行关键财务指标对比。所有内容使用中文。`
+
+  // Build JSON schema - add research_comparison if we have research report
+  const baseSchema = {
+    type: 'object' as const,
+    properties: {
+      one_line_conclusion: { type: 'string' as const },
+      results_summary: { type: 'string' as const },
+      results_table: {
+        type: 'array' as const,
+        items: {
+          type: 'object' as const,
+          properties: {
+            metric: { type: 'string' as const },
+            actual: { type: 'string' as const },
+            consensus: { type: 'string' as const },
+            delta: { type: 'string' as const },
+            assessment: { type: 'string' as const },
+          },
+          required: ['metric', 'actual', 'consensus', 'delta', 'assessment'] as const,
+        },
+      },
+      results_explanation: { type: 'string' as const },
+      drivers_summary: { type: 'string' as const },
+      drivers: {
+        type: 'object' as const,
+        properties: {
+          demand: {
+            type: 'object' as const,
+            properties: {
+              category: { type: 'string' as const },
+              title: { type: 'string' as const },
+              change: { type: 'string' as const },
+              magnitude: { type: 'string' as const },
+              reason: { type: 'string' as const },
+            },
+            required: ['category', 'title', 'change', 'magnitude', 'reason'] as const,
+          },
+          monetization: {
+            type: 'object' as const,
+            properties: {
+              category: { type: 'string' as const },
+              title: { type: 'string' as const },
+              change: { type: 'string' as const },
+              magnitude: { type: 'string' as const },
+              reason: { type: 'string' as const },
+            },
+            required: ['category', 'title', 'change', 'magnitude', 'reason'] as const,
+          },
+          efficiency: {
+            type: 'object' as const,
+            properties: {
+              category: { type: 'string' as const },
+              title: { type: 'string' as const },
+              change: { type: 'string' as const },
+              magnitude: { type: 'string' as const },
+              reason: { type: 'string' as const },
+            },
+            required: ['category', 'title', 'change', 'magnitude', 'reason'] as const,
+          },
+        },
+        required: ['demand', 'monetization', 'efficiency'] as const,
+      },
+      investment_roi: {
+        type: 'object' as const,
+        properties: {
+          capex_change: { type: 'string' as const },
+          opex_change: { type: 'string' as const },
+          investment_direction: { type: 'string' as const },
+          roi_evidence: {
+            type: 'array' as const,
+            items: { type: 'string' as const },
+          },
+          management_commitment: { type: 'string' as const },
+        },
+        required: ['capex_change', 'opex_change', 'investment_direction', 'roi_evidence', 'management_commitment'] as const,
+      },
+      sustainability_risks: {
+        type: 'object' as const,
+        properties: {
+          sustainable_drivers: {
+            type: 'array' as const,
+            items: { type: 'string' as const },
+          },
+          main_risks: {
+            type: 'array' as const,
+            items: { type: 'string' as const },
+          },
+          checkpoints: {
+            type: 'array' as const,
+            items: { type: 'string' as const },
+          },
+        },
+        required: ['sustainable_drivers', 'main_risks', 'checkpoints'] as const,
+      },
+      model_impact: {
+        type: 'object' as const,
+        properties: {
+          revenue_adjustment: { type: 'string' as const },
+          capex_adjustment: { type: 'string' as const },
+          valuation_change: { type: 'string' as const },
+          logic_chain: { type: 'string' as const },
+        },
+        required: ['revenue_adjustment', 'capex_adjustment', 'valuation_change', 'logic_chain'] as const,
+      },
+      final_judgment: {
+        type: 'object' as const,
+        properties: {
+          confidence: { type: 'string' as const },
+          concerns: { type: 'string' as const },
+          net_impact: { type: 'string' as const },
+          recommendation: { type: 'string' as const },
+        },
+        required: ['confidence', 'concerns', 'net_impact', 'recommendation'] as const,
+      },
+    },
+    required: [
+      'one_line_conclusion',
+      'results_summary',
+      'results_table',
+      'results_explanation',
+      'drivers_summary',
+      'drivers',
+      'investment_roi',
+      'sustainability_risks',
+      'model_impact',
+      'final_judgment',
+    ] as const,
+  }
+
+  // Add research_comparison to schema if we have research report
+  if (hasResearchReport) {
+    (baseSchema.properties as any).research_comparison = {
+      type: 'object' as const,
+      properties: {
+        consensus_source: { type: 'string' as const },
+        key_differences: {
+          type: 'array' as const,
+          items: { type: 'string' as const },
+        },
+        beat_miss_summary: { type: 'string' as const },
+        analyst_blind_spots: { type: 'string' as const },
+      },
+      required: ['consensus_source', 'key_differences', 'beat_miss_summary', 'analyst_blind_spots'] as const,
+    };
+    (baseSchema.required as any).push('research_comparison')
+  }
+
   const response = await openrouter.chat({
     model: 'google/gemini-3-pro-preview',
     messages: [
@@ -221,15 +497,7 @@ export async function analyzeFinancialReport(
       },
       {
         role: 'user',
-        content: `公司：${metadata.company} (${metadata.symbol})
-报告期：${metadata.period}
-公司分类：${companyInfo.categoryName}
-市场预期：${JSON.stringify(metadata.consensus || {}, null, 2)}
-
-财报内容：
-${reportText}
-
-请严格按JSON格式输出完整分析，确保每个字段都有详细内容。results_table必须包含5-7行关键财务指标对比。所有内容使用中文。`,
+        content: userMessage,
       },
     ],
     response_format: {
@@ -237,132 +505,7 @@ ${reportText}
       json_schema: {
         name: 'financial_analysis',
         strict: true,
-        schema: {
-          type: 'object',
-          properties: {
-            one_line_conclusion: { type: 'string' },
-            results_summary: { type: 'string' },
-            results_table: {
-              type: 'array',
-              items: {
-                type: 'object',
-                properties: {
-                  metric: { type: 'string' },
-                  actual: { type: 'string' },
-                  consensus: { type: 'string' },
-                  delta: { type: 'string' },
-                  assessment: { type: 'string' },
-                },
-                required: ['metric', 'actual', 'consensus', 'delta', 'assessment'],
-              },
-            },
-            results_explanation: { type: 'string' },
-            drivers_summary: { type: 'string' },
-            drivers: {
-              type: 'object',
-              properties: {
-                demand: {
-                  type: 'object',
-                  properties: {
-                    category: { type: 'string' },
-                    title: { type: 'string' },
-                    change: { type: 'string' },
-                    magnitude: { type: 'string' },
-                    reason: { type: 'string' },
-                  },
-                  required: ['category', 'title', 'change', 'magnitude', 'reason'],
-                },
-                monetization: {
-                  type: 'object',
-                  properties: {
-                    category: { type: 'string' },
-                    title: { type: 'string' },
-                    change: { type: 'string' },
-                    magnitude: { type: 'string' },
-                    reason: { type: 'string' },
-                  },
-                  required: ['category', 'title', 'change', 'magnitude', 'reason'],
-                },
-                efficiency: {
-                  type: 'object',
-                  properties: {
-                    category: { type: 'string' },
-                    title: { type: 'string' },
-                    change: { type: 'string' },
-                    magnitude: { type: 'string' },
-                    reason: { type: 'string' },
-                  },
-                  required: ['category', 'title', 'change', 'magnitude', 'reason'],
-                },
-              },
-              required: ['demand', 'monetization', 'efficiency'],
-            },
-            investment_roi: {
-              type: 'object',
-              properties: {
-                capex_change: { type: 'string' },
-                opex_change: { type: 'string' },
-                investment_direction: { type: 'string' },
-                roi_evidence: {
-                  type: 'array',
-                  items: { type: 'string' },
-                },
-                management_commitment: { type: 'string' },
-              },
-              required: ['capex_change', 'opex_change', 'investment_direction', 'roi_evidence', 'management_commitment'],
-            },
-            sustainability_risks: {
-              type: 'object',
-              properties: {
-                sustainable_drivers: {
-                  type: 'array',
-                  items: { type: 'string' },
-                },
-                main_risks: {
-                  type: 'array',
-                  items: { type: 'string' },
-                },
-                checkpoints: {
-                  type: 'array',
-                  items: { type: 'string' },
-                },
-              },
-              required: ['sustainable_drivers', 'main_risks', 'checkpoints'],
-            },
-            model_impact: {
-              type: 'object',
-              properties: {
-                revenue_adjustment: { type: 'string' },
-                capex_adjustment: { type: 'string' },
-                valuation_change: { type: 'string' },
-                logic_chain: { type: 'string' },
-              },
-              required: ['revenue_adjustment', 'capex_adjustment', 'valuation_change', 'logic_chain'],
-            },
-            final_judgment: {
-              type: 'object',
-              properties: {
-                confidence: { type: 'string' },
-                concerns: { type: 'string' },
-                net_impact: { type: 'string' },
-                recommendation: { type: 'string' },
-              },
-              required: ['confidence', 'concerns', 'net_impact', 'recommendation'],
-            },
-          },
-          required: [
-            'one_line_conclusion',
-            'results_summary',
-            'results_table',
-            'results_explanation',
-            'drivers_summary',
-            'drivers',
-            'investment_roi',
-            'sustainability_risks',
-            'model_impact',
-            'final_judgment',
-          ],
-        },
+        schema: baseSchema,
       },
     },
     temperature: 0.3,
@@ -381,7 +524,8 @@ ${reportText}
     result.metadata = {
       company_category: companyInfo.categoryName,
       analysis_timestamp: new Date().toISOString(),
-      prompt_version: '2.0-zh',
+      prompt_version: hasResearchReport ? '2.1-zh-research' : '2.0-zh',
+      has_research_report: hasResearchReport,
     }
     
     return result

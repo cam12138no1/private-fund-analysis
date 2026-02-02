@@ -16,6 +16,7 @@ export interface StoredAnalysis {
   processed: boolean
   processing?: boolean
   error?: string
+  has_research_report?: boolean  // 是否包含研报对比
   
   // Complete analysis results
   one_line_conclusion?: string
@@ -52,10 +53,18 @@ export interface StoredAnalysis {
     net_impact: string
     recommendation: string
   }
+  // 研报对比分析 (可选，仅当有研报时)
+  research_comparison?: {
+    consensus_source: string
+    key_differences: string[]
+    beat_miss_summary: string
+    analyst_blind_spots: string
+  }
   metadata?: {
     company_category: string
     analysis_timestamp: string
     prompt_version: string
+    has_research_report?: boolean
   }
 }
 
