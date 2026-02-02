@@ -1,7 +1,7 @@
 'use client'
 
 import { useTranslations } from 'next-intl'
-import { LayoutDashboard, FileText, Settings, LogOut, TableProperties, TrendingUp } from 'lucide-react'
+import { LayoutDashboard, FileText, Settings, LogOut, TableProperties, TrendingUp, GitCompare, MessageSquarePlus } from 'lucide-react'
 import { usePathname } from 'next/navigation'
 import Link from 'next/link'
 import { signOut } from 'next-auth/react'
@@ -15,6 +15,8 @@ export default function Sidebar() {
     { name: t('nav.dashboard'), href: '/dashboard', icon: LayoutDashboard },
     { name: '汇总表', href: '/dashboard/summary', icon: TableProperties, badge: 'NEW' },
     { name: t('nav.reports'), href: '/dashboard/reports', icon: FileText },
+    { name: '横向对比', href: '/dashboard/comparison', icon: GitCompare, badge: 'NEW' },
+    { name: '自定义问题', href: '/dashboard/custom-questions', icon: MessageSquarePlus, badge: 'NEW' },
     { name: t('nav.settings'), href: '/dashboard/settings', icon: Settings },
   ]
 

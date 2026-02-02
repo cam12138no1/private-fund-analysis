@@ -1,4 +1,5 @@
 import { openrouter } from '../openrouter'
+import { getCompanyCategory } from './prompts'
 
 export interface ReportMetadata {
   company: string
@@ -174,12 +175,16 @@ export async function analyzeFinancialReport(
   reportText: string,
   metadata: ReportMetadata
 ): Promise<AnalysisResult> {
+  // Determine company category and get appropriate prompt
+  const companyInfo = getCompanyCategory(metadata.symbol || metadata.company)
+  console.log(`Analyzing ${metadata.company} as ${companyInfo.categoryName}`)
+  
   const response = await openrouter.chat({
     model: 'google/gemini-3-pro-preview',
     messages: [
       {
         role: 'system',
-        content: ANALYSIS_PROMPT,
+        content: companyInfo.prompt,
       },
       {
         role: 'user',
