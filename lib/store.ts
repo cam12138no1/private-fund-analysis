@@ -1,7 +1,7 @@
-// Hybrid storage: Uses Vercel KV when available, falls back to in-memory for development
+// Hybrid storage: Uses Vercel Blob when available, falls back to in-memory for development
 // This ensures data persists across serverless function invocations
 
-import { kv } from '@vercel/kv'
+import { put, list, del } from '@vercel/blob'
 import { AnalysisResult, ResultsTableRow, DriverDetail } from './ai/analyzer'
 
 export interface StoredAnalysis {
@@ -59,75 +59,89 @@ export interface StoredAnalysis {
   }
 }
 
-const ANALYSES_KEY = 'financial_analyses'
-const COUNTER_KEY = 'analysis_counter'
+const BLOB_PREFIX = 'analyses/'
+const INDEX_FILE = 'analyses/_index.json'
 
-// Check if KV is available
-function isKVAvailable(): boolean {
-  return !!(process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN)
+// Check if Blob is available
+function isBlobAvailable(): boolean {
+  return !!process.env.BLOB_READ_WRITE_TOKEN
 }
 
 class AnalysisStore {
   private memoryStore: Map<string, StoredAnalysis> = new Map()
   private memoryCounter: number = 0
-  private useKV: boolean
+  private useBlob: boolean
 
   constructor() {
-    this.useKV = isKVAvailable()
-    console.log(`AnalysisStore initialized. Using KV: ${this.useKV}`)
+    this.useBlob = isBlobAvailable()
+    console.log(`AnalysisStore initialized. Using Blob: ${this.useBlob}`)
+  }
+
+  private async getIndex(): Promise<string[]> {
+    if (!this.useBlob) return []
+    
+    try {
+      const { blobs } = await list({ prefix: BLOB_PREFIX })
+      // Filter out the index file itself
+      return blobs
+        .filter(b => !b.pathname.endsWith('_index.json'))
+        .map(b => b.pathname.replace(BLOB_PREFIX, '').replace('.json', ''))
+    } catch (error) {
+      console.error('[Blob] Error getting index:', error)
+      return []
+    }
   }
 
   async add(analysis: Omit<StoredAnalysis, 'id'>): Promise<StoredAnalysis> {
-    if (this.useKV) {
+    const timestamp = Date.now()
+    const id = `analysis_${timestamp}_${Math.random().toString(36).substr(2, 9)}`
+    const storedAnalysis: StoredAnalysis = { id, ...analysis }
+    
+    if (this.useBlob) {
       try {
-        // Get and increment counter
-        let counter = await kv.get<number>(COUNTER_KEY) || 0
-        counter++
-        await kv.set(COUNTER_KEY, counter)
+        const blobPath = `${BLOB_PREFIX}${id}.json`
+        await put(blobPath, JSON.stringify(storedAnalysis), {
+          access: 'public',
+          contentType: 'application/json',
+        })
         
-        const id = `analysis_${counter}_${Date.now()}`
-        const storedAnalysis: StoredAnalysis = { id, ...analysis }
-        
-        // Get existing analyses
-        const analyses = await kv.get<Record<string, StoredAnalysis>>(ANALYSES_KEY) || {}
-        analyses[id] = storedAnalysis
-        await kv.set(ANALYSES_KEY, analyses)
-        
-        console.log(`[KV] Added analysis: ${id}`)
+        console.log(`[Blob] Added analysis: ${id}`)
         return storedAnalysis
       } catch (error) {
-        console.error('[KV] Error adding analysis, falling back to memory:', error)
+        console.error('[Blob] Error adding analysis, falling back to memory:', error)
         // Fall back to memory
       }
     }
     
     // Memory fallback
     this.memoryCounter++
-    const id = `analysis_${this.memoryCounter}_${Date.now()}`
-    const storedAnalysis: StoredAnalysis = { id, ...analysis }
     this.memoryStore.set(id, storedAnalysis)
     console.log(`[Memory] Added analysis: ${id}`)
     return storedAnalysis
   }
 
   async update(id: string, updates: Partial<StoredAnalysis>): Promise<StoredAnalysis | undefined> {
-    if (this.useKV) {
+    if (this.useBlob) {
       try {
-        const analyses = await kv.get<Record<string, StoredAnalysis>>(ANALYSES_KEY) || {}
-        const existing = analyses[id]
+        // First get the existing analysis
+        const existing = await this.get(id)
         if (!existing) {
-          console.log(`[KV] Analysis not found for update: ${id}`)
+          console.log(`[Blob] Analysis not found for update: ${id}`)
           return undefined
         }
         
         const updated = { ...existing, ...updates }
-        analyses[id] = updated
-        await kv.set(ANALYSES_KEY, analyses)
+        const blobPath = `${BLOB_PREFIX}${id}.json`
         
-        console.log(`[KV] Updated analysis: ${id}`)
+        await put(blobPath, JSON.stringify(updated), {
+          access: 'public',
+          contentType: 'application/json',
+        })
+        
+        console.log(`[Blob] Updated analysis: ${id}`)
         return updated
       } catch (error) {
-        console.error('[KV] Error updating analysis:', error)
+        console.error('[Blob] Error updating analysis:', error)
       }
     }
     
@@ -141,28 +155,51 @@ class AnalysisStore {
   }
 
   async get(id: string): Promise<StoredAnalysis | undefined> {
-    if (this.useKV) {
+    if (this.useBlob) {
       try {
-        const analyses = await kv.get<Record<string, StoredAnalysis>>(ANALYSES_KEY) || {}
-        return analyses[id]
+        const { blobs } = await list({ prefix: `${BLOB_PREFIX}${id}` })
+        if (blobs.length === 0) return undefined
+        
+        const response = await fetch(blobs[0].url)
+        if (!response.ok) return undefined
+        
+        return await response.json()
       } catch (error) {
-        console.error('[KV] Error getting analysis:', error)
+        console.error('[Blob] Error getting analysis:', error)
       }
     }
     return this.memoryStore.get(id)
   }
 
   async getAll(): Promise<StoredAnalysis[]> {
-    if (this.useKV) {
+    if (this.useBlob) {
       try {
-        const analyses = await kv.get<Record<string, StoredAnalysis>>(ANALYSES_KEY) || {}
-        const result = Object.values(analyses).sort(
-          (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+        const { blobs } = await list({ prefix: BLOB_PREFIX })
+        const analyses: StoredAnalysis[] = []
+        
+        for (const blob of blobs) {
+          if (blob.pathname.endsWith('_index.json')) continue
+          
+          try {
+            const response = await fetch(blob.url)
+            if (response.ok) {
+              const analysis = await response.json()
+              analyses.push(analysis)
+            }
+          } catch (e) {
+            console.error(`[Blob] Error fetching ${blob.pathname}:`, e)
+          }
+        }
+        
+        // Sort by created_at descending
+        analyses.sort((a, b) => 
+          new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
         )
-        console.log(`[KV] Retrieved ${result.length} analyses`)
-        return result
+        
+        console.log(`[Blob] Retrieved ${analyses.length} analyses`)
+        return analyses
       } catch (error) {
-        console.error('[KV] Error getting all analyses:', error)
+        console.error('[Blob] Error getting all analyses:', error)
       }
     }
     
@@ -182,13 +219,15 @@ class AnalysisStore {
   }
 
   async clear(): Promise<void> {
-    if (this.useKV) {
+    if (this.useBlob) {
       try {
-        await kv.del(ANALYSES_KEY)
-        await kv.set(COUNTER_KEY, 0)
-        console.log('[KV] Cleared all analyses')
+        const { blobs } = await list({ prefix: BLOB_PREFIX })
+        for (const blob of blobs) {
+          await del(blob.url)
+        }
+        console.log('[Blob] Cleared all analyses')
       } catch (error) {
-        console.error('[KV] Error clearing analyses:', error)
+        console.error('[Blob] Error clearing analyses:', error)
       }
     }
     this.memoryStore.clear()
