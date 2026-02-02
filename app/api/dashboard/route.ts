@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
-import { getRecentAnalyses } from '@/lib/db/queries'
+import { analysisStore } from '@/lib/store'
 
 export async function GET(request: NextRequest) {
   try {
@@ -13,7 +13,8 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url)
     const limit = parseInt(searchParams.get('limit') || '10')
 
-    const analyses = await getRecentAnalyses(limit)
+    // Use in-memory store for demo mode
+    const analyses = analysisStore.getAll().slice(0, limit)
 
     return NextResponse.json({ analyses })
   } catch (error: any) {

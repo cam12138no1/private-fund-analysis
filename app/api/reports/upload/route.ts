@@ -1,16 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
-import { put } from '@vercel/blob'
-import { 
-  createCompany, 
-  createFinancialReport, 
-  createAnalysisResult,
-  getCompanyBySymbol,
-  updateReportProcessed 
-} from '@/lib/db/queries'
 import { extractTextFromDocument } from '@/lib/document-parser'
 import { analyzeFinancialReport } from '@/lib/ai/analyzer'
+import { extractMetadataFromReport } from '@/lib/ai/extractor'
+import { analysisStore } from '@/lib/store'
 
 export const runtime = 'nodejs'
 export const maxDuration = 300 // 5 minutes
@@ -24,90 +18,69 @@ export async function POST(request: NextRequest) {
 
     const formData = await request.formData()
     const file = formData.get('file') as File
-    const companyName = formData.get('companyName') as string
-    const symbol = formData.get('symbol') as string
-    const reportType = formData.get('reportType') as string
-    const fiscalYear = parseInt(formData.get('fiscalYear') as string)
-    const fiscalQuarter = formData.get('fiscalQuarter') ? 
-      parseInt(formData.get('fiscalQuarter') as string) : undefined
-    const filingDate = new Date(formData.get('filingDate') as string)
-    
-    // Consensus data (optional)
-    const consensusRevenue = formData.get('consensusRevenue') ? 
-      parseFloat(formData.get('consensusRevenue') as string) : undefined
-    const consensusEPS = formData.get('consensusEPS') ? 
-      parseFloat(formData.get('consensusEPS') as string) : undefined
-    const consensusOperatingIncome = formData.get('consensusOperatingIncome') ? 
-      parseFloat(formData.get('consensusOperatingIncome') as string) : undefined
 
-    if (!file || !companyName || !symbol || !reportType || !fiscalYear || !filingDate) {
-      return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
+    if (!file) {
+      return NextResponse.json({ error: 'No file uploaded' }, { status: 400 })
     }
 
-    // Upload file to Vercel Blob
+    // Check file type
+    if (file.type !== 'application/pdf') {
+      return NextResponse.json({ error: 'Only PDF files are supported' }, { status: 400 })
+    }
+
+    // Read file buffer
     const buffer = Buffer.from(await file.arrayBuffer())
-    const blob = await put(`reports/${symbol}/${fiscalYear}/${file.name}`, buffer, {
-      access: 'public',
-    })
 
-    // Get or create company
-    let company = await getCompanyBySymbol(symbol)
-    if (!company) {
-      company = await createCompany({
-        symbol,
-        name: companyName,
-      })
-    }
-
-    // Create financial report record
-    const report = await createFinancialReport({
-      company_id: company.id,
-      report_type: reportType,
-      fiscal_year: fiscalYear,
-      fiscal_quarter: fiscalQuarter,
-      filing_date: filingDate,
-      document_url: blob.url,
-      document_size: buffer.length,
-    })
-
-    // Extract text from document
+    // Extract text from PDF
+    console.log('Extracting text from PDF...')
     const reportText = await extractTextFromDocument(buffer, file.type)
 
-    // Analyze with AI
+    if (!reportText || reportText.length < 100) {
+      return NextResponse.json({ error: 'Could not extract text from PDF' }, { status: 400 })
+    }
+
+    // Step 1: Extract metadata using AI
+    console.log('Extracting metadata with AI...')
+    const metadata = await extractMetadataFromReport(reportText)
+    console.log('Extracted metadata:', metadata)
+
+    // Step 2: Analyze the report
+    console.log('Analyzing report with AI...')
     const analysis = await analyzeFinancialReport(reportText, {
-      company: companyName,
-      symbol,
-      period: fiscalQuarter ? `Q${fiscalQuarter} ${fiscalYear}` : `FY ${fiscalYear}`,
-      fiscalYear,
-      fiscalQuarter,
+      company: metadata.company_name,
+      symbol: metadata.company_symbol,
+      period: metadata.fiscal_quarter 
+        ? `Q${metadata.fiscal_quarter} ${metadata.fiscal_year}` 
+        : `FY ${metadata.fiscal_year}`,
+      fiscalYear: metadata.fiscal_year,
+      fiscalQuarter: metadata.fiscal_quarter || undefined,
       consensus: {
-        revenue: consensusRevenue,
-        eps: consensusEPS,
-        operatingIncome: consensusOperatingIncome,
+        revenue: metadata.revenue || undefined,
+        eps: metadata.eps || undefined,
+        operatingIncome: metadata.operating_income || undefined,
       },
     })
 
-    // Save analysis result
-    const analysisResult = await createAnalysisResult({
-      report_id: report.id,
-      analysis_type: 'comprehensive',
-      analysis_content: analysis,
-      key_insights: {
-        one_line_conclusion: analysis.one_line_conclusion,
-        results_vs_expectations: analysis.results_vs_expectations,
-      },
-      risk_factors: analysis.sustainability_risks,
-      model_impact: analysis.model_impact,
+    // Store in memory (demo mode)
+    const storedAnalysis = analysisStore.add({
+      company_name: metadata.company_name,
+      company_symbol: metadata.company_symbol,
+      report_type: metadata.report_type,
+      fiscal_year: metadata.fiscal_year,
+      fiscal_quarter: metadata.fiscal_quarter || undefined,
+      filing_date: metadata.filing_date,
+      created_at: new Date().toISOString(),
+      processed: true,
+      ...analysis,
     })
 
-    // Mark report as processed
-    await updateReportProcessed(report.id, true)
+    console.log('Analysis complete:', storedAnalysis.id)
 
     return NextResponse.json({
       success: true,
-      report_id: report.id,
-      analysis_id: analysisResult.id,
-      analysis,
+      analysis_id: storedAnalysis.id,
+      metadata,
+      analysis: storedAnalysis,
     })
   } catch (error: any) {
     console.error('Upload and analyze error:', error)

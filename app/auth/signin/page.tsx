@@ -1,14 +1,17 @@
 'use client'
 
 import { useState } from 'react'
+import { useTranslations } from 'next-intl'
 import { signIn } from 'next-auth/react'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { toast } from '@/components/ui/toaster'
+import LanguageSwitcher from '@/components/language-switcher'
 
 export default function SignInPage() {
+  const t = useTranslations()
   const router = useRouter()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -27,8 +30,8 @@ export default function SignInPage() {
 
       if (result?.error) {
         toast({
-          title: 'Authentication Failed',
-          description: 'Invalid email or password',
+          title: t('common.error'),
+          description: t('auth.invalidCredentials'),
           variant: 'destructive',
         })
       } else {
@@ -36,8 +39,8 @@ export default function SignInPage() {
       }
     } catch (error) {
       toast({
-        title: 'Error',
-        description: 'An unexpected error occurred',
+        title: t('common.error'),
+        description: t('auth.invalidCredentials'),
         variant: 'destructive',
       })
     } finally {
@@ -47,10 +50,13 @@ export default function SignInPage() {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
+      <div className="absolute top-4 right-4">
+        <LanguageSwitcher />
+      </div>
       <Card className="w-full max-w-md">
         <CardHeader className="space-y-1">
           <CardTitle className="text-3xl font-bold text-center">
-            Private Fund Analysis
+            {t('common.appName')}
           </CardTitle>
           <CardDescription className="text-center">
             Enterprise financial report analysis platform
@@ -60,7 +66,7 @@ export default function SignInPage() {
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
               <label htmlFor="email" className="text-sm font-medium">
-                Email
+                {t('auth.email')}
               </label>
               <Input
                 id="email"
@@ -74,7 +80,7 @@ export default function SignInPage() {
             </div>
             <div className="space-y-2">
               <label htmlFor="password" className="text-sm font-medium">
-                Password
+                {t('auth.password')}
               </label>
               <Input
                 id="password"
@@ -87,7 +93,7 @@ export default function SignInPage() {
               />
             </div>
             <Button type="submit" className="w-full" disabled={isLoading}>
-              {isLoading ? 'Signing in...' : 'Sign In'}
+              {isLoading ? t('auth.signingIn') : t('auth.signInButton')}
             </Button>
           </form>
           <div className="mt-6 text-sm text-center text-gray-600">

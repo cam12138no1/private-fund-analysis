@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
-import { getAllCompanies, getReportsByCompany, getAnalysisByReportId } from '@/lib/db/queries'
+import { analysisStore } from '@/lib/store'
 
 export async function GET(request: NextRequest) {
   try {
@@ -10,30 +10,37 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const companies = await getAllCompanies()
+    // Use in-memory store for demo mode
+    const allAnalyses = analysisStore.getAll()
     
-    const companiesWithReports = await Promise.all(
-      companies.map(async (company) => {
-        const reports = await getReportsByCompany(company.id)
-        
-        const reportsWithAnalysis = await Promise.all(
-          reports.map(async (report) => {
-            const analysis = await getAnalysisByReportId(report.id)
-            return {
-              ...report,
-              analysis: analysis?.analysis_content || null,
-            }
-          })
-        )
-        
-        return {
-          ...company,
-          reports: reportsWithAnalysis,
-        }
+    // Group by company
+    const companiesMap = new Map<string, any>()
+    
+    for (const analysis of allAnalyses) {
+      const symbol = analysis.company_symbol
+      if (!companiesMap.has(symbol)) {
+        companiesMap.set(symbol, {
+          id: symbol,
+          symbol: symbol,
+          name: analysis.company_name,
+          reports: [],
+        })
+      }
+      
+      companiesMap.get(symbol).reports.push({
+        id: analysis.id,
+        report_type: analysis.report_type,
+        fiscal_year: analysis.fiscal_year,
+        fiscal_quarter: analysis.fiscal_quarter,
+        filing_date: analysis.filing_date,
+        processed: analysis.processed,
+        analysis: analysis,
       })
-    )
+    }
 
-    return NextResponse.json({ companies: companiesWithReports })
+    const companies = Array.from(companiesMap.values())
+
+    return NextResponse.json({ companies })
   } catch (error: any) {
     console.error('Get reports error:', error)
     return NextResponse.json(

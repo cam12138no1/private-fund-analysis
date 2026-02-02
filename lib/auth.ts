@@ -1,7 +1,16 @@
 import { NextAuthOptions } from 'next-auth'
 import CredentialsProvider from 'next-auth/providers/credentials'
-import { sql } from '@vercel/postgres'
 import { compare } from 'bcryptjs'
+
+// Demo user for local development (when no database is configured)
+const DEMO_USER = {
+  id: '1',
+  email: 'admin@example.com',
+  name: 'Admin User',
+  password: 'admin123',
+  role: 'admin',
+  permissions: ['read', 'write', 'delete', 'admin'],
+}
 
 export const authOptions: NextAuthOptions = {
   providers: [
@@ -16,7 +25,29 @@ export const authOptions: NextAuthOptions = {
           return null
         }
 
+        // Check if database is configured
+        const isDatabaseConfigured = !!process.env.DATABASE_URL
+
+        if (!isDatabaseConfigured) {
+          // Demo mode: use hardcoded credentials
+          if (
+            credentials.email === DEMO_USER.email &&
+            credentials.password === DEMO_USER.password
+          ) {
+            return {
+              id: DEMO_USER.id,
+              email: DEMO_USER.email,
+              name: DEMO_USER.name,
+              role: DEMO_USER.role,
+              permissions: DEMO_USER.permissions,
+            }
+          }
+          return null
+        }
+
+        // Production mode: use database
         try {
+          const { sql } = await import('@vercel/postgres')
           const result = await sql`
             SELECT id, email, name, password_hash, role, permissions
             FROM users
