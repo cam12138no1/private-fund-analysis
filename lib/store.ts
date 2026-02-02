@@ -55,6 +55,18 @@ export interface StoredAnalysis {
     recommendation: string
   }
   investment_committee_summary?: string
+  // 横向对比快照 (用于投委会表格)
+  comparison_snapshot?: {
+    core_revenue: string
+    core_profit: string
+    guidance: string
+    beat_miss: string
+    core_driver_quantified: string
+    main_risk_quantified: string
+    recommendation: string
+    position_action: string
+    next_quarter_focus: string
+  }
   // 研报对比分析 (可选，仅当有研报时)
   research_comparison?: {
     consensus_source: string

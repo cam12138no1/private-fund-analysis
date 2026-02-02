@@ -149,7 +149,19 @@ ${researchComparisonInstruction}
     "recommendation": "投资建议：超配/标配/低配，以及仓位操作建议"
   },
   
-  "investment_committee_summary": "【投委会结论】4-6句话收束：我们更有信心/更担心什么；我们接下来要盯什么；本季度信息对长期叙事的净影响（更强/更弱/不变）"
+  "investment_committee_summary": "【投委会结论】4-6句话收束：我们更有信心/更担心什么；我们接下来要盯什么；本季度信息对长期叙事的净影响（更强/更弱/不变）",
+  
+  "comparison_snapshot": {
+    "core_revenue": "$XX.XB (+XX% YoY)",
+    "core_profit": "$XX.XB (+XX% YoY)",
+    "guidance": "Q1 Rev $XX-XXB / FY Rev $XXX-XXXB",
+    "beat_miss": "Strong Beat / Moderate Beat / Inline / Moderate Miss / Strong Miss",
+    "core_driver_quantified": "核心驱动量化：如 用户+15% + ARPU+8%",
+    "main_risk_quantified": "主要风险量化：如 CapEx+40%，ROI待验证",
+    "recommendation": "超配/标配/低配",
+    "position_action": "加仓X% / 持有 / 减仓X%",
+    "next_quarter_focus": "下季关注：1-2个关键指标或事件"
+  }
 }
 
 【关键规则】

@@ -89,7 +89,20 @@ export interface AnalysisResult {
   // 投委会总结段落
   investment_committee_summary: string
   
-  // 7) 研报对比分析 (可选，仅当有研报时)
+  // 7) 横向对比快照 (用于投委会表格)
+  comparison_snapshot?: {
+    core_revenue: string
+    core_profit: string
+    guidance: string
+    beat_miss: string
+    core_driver_quantified: string
+    main_risk_quantified: string
+    recommendation: string
+    position_action: string
+    next_quarter_focus: string
+  }
+  
+  // 8) 研报对比分析 (可选，仅当有研报时)
   research_comparison?: {
     consensus_source: string     // 预期来源（研报机构）
     key_differences: string[]    // 关键差异点
@@ -235,7 +248,19 @@ const JSON_OUTPUT_INSTRUCTION = `
     "recommendation": "投资建议：如'超配，但需承受短期现金流波动；更像一只长期看多、短期需承受波动的结构性资产'"
   },
   
-  "investment_committee_summary": "【投委会结论】4-6句话收束。示例：本次财报强化了我们对XX核心业务竞争力与AI驱动增长机制的信心，尤其是在XX层面的系统性优势。但同时，公司主动选择进入一个高资本强度、低短期现金回报的阶段，未来2-3年的自由现金流确定性下降。投资判断的关键不在于'AI叙事是否成立'，而在于XX的边际ROI能否持续高于资本成本。在此之前，XX更像一只长期看多、短期需承受现金流波动的结构性资产。"
+  "investment_committee_summary": "【投委会结论】4-6句话收束。示例：本次财报强化了我们对XX核心业务竞争力与AI驱动增长机制的信心，尤其是在XX层面的系统性优势。但同时，公司主动选择进入一个高资本强度、低短期现金回报的阶段，未来2-3年的自由现金流确定性下降。投资判断的关键不在于'AI叙事是否成立'，而在于XX的边际ROI能否持续高于资本成本。在此之前，XX更像一只长期看多、短期需承受现金流波动的结构性资产。",
+  
+  "comparison_snapshot": {
+    "core_revenue": "如'$42.3B (+25% YoY)'",
+    "core_profit": "如'$18.2B (+35% YoY)'",
+    "guidance": "如'Q1 Rev $43-45B / FY Rev $180-190B'",
+    "beat_miss": "Strong Beat / Moderate Beat / Inline / Moderate Miss / Strong Miss",
+    "core_driver_quantified": "如'用户+15% + ARPU+8%'",
+    "main_risk_quantified": "如'CapEx+40%，ROI待验证'",
+    "recommendation": "超配/标配/低配",
+    "position_action": "如'加仓5%' / '持有' / '减仓5%'",
+    "next_quarter_focus": "如'AI变现率、CapEx ROI'"
+  }
 }
 
 【关键规则】
@@ -325,6 +350,18 @@ const JSON_OUTPUT_INSTRUCTION_WITH_RESEARCH = `
   },
   
   "investment_committee_summary": "【投委会结论】4-6句话收束",
+  
+  "comparison_snapshot": {
+    "core_revenue": "如'$42.3B (+25% YoY)'",
+    "core_profit": "如'$18.2B (+35% YoY)'",
+    "guidance": "如'Q1 Rev $43-45B / FY Rev $180-190B'",
+    "beat_miss": "Strong Beat / Moderate Beat / Inline / Moderate Miss / Strong Miss",
+    "core_driver_quantified": "如'用户+15% + ARPU+8%'",
+    "main_risk_quantified": "如'CapEx+40%，ROI待验证'",
+    "recommendation": "超配/标配/低配",
+    "position_action": "如'加仓5%' / '持有' / '减仓5%'",
+    "next_quarter_focus": "如'AI变现率、CapEx ROI'"
+  },
   
   "research_comparison": {
     "consensus_source": "研报来源机构（如：Morgan Stanley、Goldman Sachs等）",
