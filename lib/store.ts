@@ -261,6 +261,52 @@ class AnalysisStore {
     const all = await this.getAll()
     return all.length
   }
+
+  async delete(id: string): Promise<boolean> {
+    if (this.useBlob) {
+      try {
+        const { blobs } = await list({ prefix: `${BLOB_PREFIX}${id}` })
+        if (blobs.length > 0) {
+          await del(blobs[0].url)
+          console.log(`[Blob] Deleted analysis: ${id}`)
+          return true
+        }
+        return false
+      } catch (error) {
+        console.error('[Blob] Error deleting analysis:', error)
+        return false
+      }
+    }
+    
+    // Memory fallback
+    const existed = this.memoryStore.has(id)
+    this.memoryStore.delete(id)
+    return existed
+  }
+
+  async deleteStale(maxAgeMinutes: number = 30): Promise<number> {
+    const all = await this.getAll()
+    const now = Date.now()
+    let deletedCount = 0
+    
+    for (const analysis of all) {
+      // Delete if processing for too long (stuck)
+      if (analysis.processing) {
+        const createdAt = new Date(analysis.created_at).getTime()
+        const ageMinutes = (now - createdAt) / (1000 * 60)
+        
+        if (ageMinutes > maxAgeMinutes) {
+          const deleted = await this.delete(analysis.id)
+          if (deleted) {
+            deletedCount++
+            console.log(`[Store] Deleted stale processing analysis: ${analysis.id} (age: ${ageMinutes.toFixed(1)} minutes)`)
+          }
+        }
+      }
+    }
+    
+    return deletedCount
+  }
 }
 
 // Singleton instance
