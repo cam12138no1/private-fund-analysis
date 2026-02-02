@@ -129,8 +129,8 @@ export default function DashboardClient() {
               <Sparkles className="h-5 w-5 text-yellow-300" />
               <span className="text-sm font-medium text-blue-100">{t('common.aiDriven')}</span>
             </div>
-            <h1 className="text-3xl font-bold">智析财报</h1>
-            <p className="text-blue-100 mt-2 max-w-lg">AI驱动的企业财报深度分析平台</p>
+            <h1 className="text-3xl font-bold">FinSight AI</h1>
+            <p className="text-blue-100 mt-2 max-w-lg">智析财报 · AI驱动的企业财报深度分析平台</p>
           </div>
           <div className="flex gap-3">
             <Button 

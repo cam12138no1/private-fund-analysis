@@ -58,10 +58,10 @@ export default function SignInPage() {
             </div>
           </div>
           <CardTitle className="text-3xl font-bold text-center">
-            智析财报
+            FinSight AI
           </CardTitle>
           <CardDescription className="text-center">
-            AI驱动的企业财报分析平台
+            智析财报 · AI驱动的企业财报分析平台
           </CardDescription>
         </CardHeader>
         <CardContent>

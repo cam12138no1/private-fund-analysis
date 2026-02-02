@@ -1,7 +1,7 @@
 {
-  "name": "private-fund-analysis",
+  "name": "finsight",
   "version": "1.0.0",
-  "description": "Enterprise-grade financial report analysis platform for private equity funds",
+  "description": "FinSight AI - 智析财报 - AI驱动的企业财报深度分析平台",
   "private": true,
   "scripts": {
     "dev": "next dev",

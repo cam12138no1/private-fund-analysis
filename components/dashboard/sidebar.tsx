@@ -45,9 +45,9 @@ export default function Sidebar() {
           </div>
           <div>
             <h1 className="text-lg font-bold text-white">
-              智析财报
+              FinSight
             </h1>
-            <p className="text-xs text-slate-400">AI财报分析平台</p>
+            <p className="text-xs text-slate-400">智析财报 · AI分析平台</p>
           </div>
         </div>
       </div>
