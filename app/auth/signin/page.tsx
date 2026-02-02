@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { toast } from '@/components/ui/toaster'
-import LanguageSwitcher from '@/components/language-switcher'
+import { TrendingUp } from 'lucide-react'
 
 export default function SignInPage() {
   const t = useTranslations()
@@ -50,16 +50,18 @@ export default function SignInPage() {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
-      <div className="absolute top-4 right-4">
-        <LanguageSwitcher />
-      </div>
       <Card className="w-full max-w-md">
         <CardHeader className="space-y-1">
+          <div className="flex items-center justify-center gap-3 mb-2">
+            <div className="h-12 w-12 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-blue-500/30">
+              <TrendingUp className="h-6 w-6 text-white" />
+            </div>
+          </div>
           <CardTitle className="text-3xl font-bold text-center">
-            {t('common.appName')}
+            智析财报
           </CardTitle>
           <CardDescription className="text-center">
-            Enterprise financial report analysis platform
+            AI驱动的企业财报分析平台
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -93,11 +95,11 @@ export default function SignInPage() {
               />
             </div>
             <Button type="submit" className="w-full" disabled={isLoading}>
-              {isLoading ? t('auth.signingIn') : t('auth.signInButton')}
+              {isLoading ? t('auth.signingIn') : t('auth.signIn')}
             </Button>
           </form>
           <div className="mt-6 text-sm text-center text-gray-600">
-            <p>Demo credentials:</p>
+            <p>演示账号:</p>
             <p className="font-mono text-xs mt-1">
               admin@example.com / admin123
             </p>

@@ -25,7 +25,16 @@
     "summaryDescription": "查看所有公司的分析汇总",
     "processingBanner": "正在处理 {count} 份财报",
     "processingDescription": "AI正在分析财报内容，请稍候...",
-    "autoRefreshing": "自动刷新中"
+    "autoRefreshing": "自动刷新中",
+    "refresh": "刷新",
+    "completed": "已完成",
+    "processing": "处理中",
+    "noData": "暂无数据",
+    "close": "关闭",
+    "view": "查看",
+    "back": "返回",
+    "analyzing2": "正在分析...",
+    "analysisFailed": "分析失败"
   },
   "nav": {
     "dashboard": "仪表板",
@@ -69,7 +78,10 @@
     "processing": "分析中",
     "beat": "超预期",
     "miss": "不及预期",
-    "inline": "符合预期"
+    "inline": "符合预期",
+    "recentReports": "最近分析",
+    "noReportsYet": "暂无分析报告",
+    "uploadFirstReport": "上传您的第一份财报开始分析"
   },
   "upload": {
     "title": "上传财报",
@@ -184,7 +196,9 @@
     "latestReport": "最新财报",
     "analysisStatus": "分析状态",
     "aiApplication": "AI应用公司",
-    "aiSupplyChain": "AI供应链公司"
+    "aiSupplyChain": "AI供应链公司",
+    "sustainabilityAndRisks": "可持续性与风险",
+    "futureCheckpoints": "未来检查点"
   },
   "comparison": {
     "title": "同赛道公司横向对比",
@@ -243,7 +257,8 @@
     "noReports": "暂无财报",
     "filed": "报告于",
     "refresh": "刷新",
-    "exportExcel": "导出Excel"
+    "exportExcel": "导出Excel",
+    "identifying": "识别中..."
   },
   "settings": {
     "title": "设置",
@@ -277,7 +292,16 @@
     "failed": "失败",
     "recentCompleted": "最近完成",
     "noProcessing": "暂无处理中的任务",
-    "viewDetails": "查看详情"
+    "viewDetails": "查看详情",
+    "analyzing": "正在分析 {count} 份报告",
+    "hasErrors": "{count} 份报告分析失败",
+    "allComplete": "所有分析已完成",
+    "pleaseWait": "请稍候...",
+    "recentActivity": "最近活动",
+    "inProgress": "处理中",
+    "recentlyCompleted": "最近完成",
+    "done": "完成",
+    "analyzing_status": "分析中"
   },
   "errors": {
     "unauthorized": "未授权访问",

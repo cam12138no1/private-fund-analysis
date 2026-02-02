@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useTranslations } from 'next-intl'
-import { Plus, TrendingUp, FileText, BarChart3, Upload, Sparkles, ArrowRight, Loader2 } from 'lucide-react'
+import { Plus, TrendingUp, FileText, BarChart3, Upload, Sparkles, ArrowRight, Loader2, GitCompare } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import Link from 'next/link'
@@ -129,8 +129,8 @@ export default function DashboardClient() {
               <Sparkles className="h-5 w-5 text-yellow-300" />
               <span className="text-sm font-medium text-blue-100">{t('common.aiDriven')}</span>
             </div>
-            <h1 className="text-3xl font-bold">{t('dashboard.title')}</h1>
-            <p className="text-blue-100 mt-2 max-w-lg">{t('dashboard.subtitle')}</p>
+            <h1 className="text-3xl font-bold">智析财报</h1>
+            <p className="text-blue-100 mt-2 max-w-lg">AI驱动的企业财报深度分析平台</p>
           </div>
           <div className="flex gap-3">
             <Button 
@@ -139,14 +139,14 @@ export default function DashboardClient() {
               className="bg-white text-blue-600 hover:bg-blue-50 shadow-lg"
             >
               <Upload className="mr-2 h-5 w-5" />
-              {t('common.uploadReport')}
+              上传财报
             </Button>
-            <Link href="/dashboard/summary">
+            <Link href="/dashboard/comparison">
               <Button 
                 size="lg"
                 className="bg-white/20 text-white border-2 border-white/50 hover:bg-white/30 backdrop-blur-sm"
               >
-                {t('nav.analysis')}
+                横向对比
                 <ArrowRight className="ml-2 h-4 w-4" />
               </Button>
             </Link>
@@ -163,7 +163,7 @@ export default function DashboardClient() {
                 <FileText className="h-6 w-6 text-white" />
               </div>
               <div>
-                <p className="text-sm font-medium text-gray-500">{t('dashboard.totalReports')}</p>
+                <p className="text-sm font-medium text-gray-500">已分析财报</p>
                 <p className="text-3xl font-bold text-gray-900">{stats.totalReports}</p>
               </div>
             </div>
@@ -177,7 +177,7 @@ export default function DashboardClient() {
                 <TrendingUp className="h-6 w-6 text-white" />
               </div>
               <div>
-                <p className="text-sm font-medium text-gray-500">{t('dashboard.companiesAnalyzed')}</p>
+                <p className="text-sm font-medium text-gray-500">覆盖公司</p>
                 <p className="text-3xl font-bold text-gray-900">{stats.companiesAnalyzed}</p>
               </div>
             </div>
@@ -191,7 +191,7 @@ export default function DashboardClient() {
                 <BarChart3 className="h-6 w-6 text-white" />
               </div>
               <div>
-                <p className="text-sm font-medium text-gray-500">{t('dashboard.recentAnalyses')}</p>
+                <p className="text-sm font-medium text-gray-500">本周分析</p>
                 <p className="text-3xl font-bold text-gray-900">{stats.recentAnalyses}</p>
               </div>
             </div>
@@ -209,21 +209,21 @@ export default function DashboardClient() {
             <Plus className="h-6 w-6 text-blue-600" />
           </div>
           <div className="text-left">
-            <p className="font-semibold text-gray-900">{t('common.uploadNew')}</p>
-            <p className="text-sm text-gray-500">{t('common.supportPdf')}</p>
+            <p className="font-semibold text-gray-900">上传新财报</p>
+            <p className="text-sm text-gray-500">支持PDF格式财报文件</p>
           </div>
         </button>
         
         <Link 
-          href="/dashboard/summary"
+          href="/dashboard/comparison"
           className="flex items-center gap-4 p-6 bg-white rounded-xl border border-gray-200 hover:border-purple-400 hover:bg-purple-50/50 transition-all group"
         >
           <div className="h-12 w-12 rounded-xl bg-purple-100 flex items-center justify-center group-hover:bg-purple-200 transition-colors">
-            <BarChart3 className="h-6 w-6 text-purple-600" />
+            <GitCompare className="h-6 w-6 text-purple-600" />
           </div>
           <div className="text-left flex-1">
-            <p className="font-semibold text-gray-900">{t('common.summarySheet')}</p>
-            <p className="text-sm text-gray-500">{t('common.summaryDescription')}</p>
+            <p className="font-semibold text-gray-900">横向对比</p>
+            <p className="text-sm text-gray-500">对比同类公司关键指标</p>
           </div>
           <ArrowRight className="h-5 w-5 text-gray-400 group-hover:text-purple-600 transition-colors" />
         </Link>
