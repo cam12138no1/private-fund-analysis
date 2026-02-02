@@ -37,24 +37,28 @@ export async function POST(request: NextRequest) {
       ? category as 'AI_APPLICATION' | 'AI_SUPPLY_CHAIN'
       : null
 
+    console.log(`[Upload] Processing file: ${file.name}, category: ${selectedCategory || 'auto-detect'}`)
+
     // Read file buffer
     const buffer = Buffer.from(await file.arrayBuffer())
 
     // Extract text from PDF
-    console.log('Extracting text from PDF...')
+    console.log('[Upload] Extracting text from PDF...')
     const reportText = await extractTextFromDocument(buffer, file.type)
 
     if (!reportText || reportText.length < 100) {
       return NextResponse.json({ error: 'Could not extract text from PDF' }, { status: 400 })
     }
 
+    console.log(`[Upload] Extracted ${reportText.length} characters from PDF`)
+
     // Step 1: Extract metadata using AI
-    console.log('Extracting metadata with AI...')
+    console.log('[Upload] Extracting metadata with AI...')
     const metadata = await extractMetadataFromReport(reportText)
-    console.log('Extracted metadata:', metadata)
+    console.log('[Upload] Extracted metadata:', metadata)
 
     // Create processing entry so frontend can see progress
-    const processingEntry = analysisStore.add({
+    const processingEntry = await analysisStore.add({
       company_name: metadata.company_name,
       company_symbol: metadata.company_symbol,
       report_type: metadata.report_type,
@@ -66,10 +70,10 @@ export async function POST(request: NextRequest) {
       processing: true,  // Mark as processing
     })
     processingId = processingEntry.id
-    console.log('Created processing entry:', processingId)
+    console.log(`[Upload] Created processing entry: ${processingId}`)
 
     // Step 2: Analyze the report with the selected category
-    console.log(`Analyzing report with AI... Category: ${selectedCategory || 'auto-detect'}`)
+    console.log(`[Upload] Analyzing report with AI... Category: ${selectedCategory || 'auto-detect'}`)
     const analysis = await analyzeFinancialReport(reportText, {
       company: metadata.company_name,
       symbol: metadata.company_symbol,
@@ -88,13 +92,13 @@ export async function POST(request: NextRequest) {
     })
 
     // Update record as completed
-    const storedAnalysis = analysisStore.update(processingId, {
+    const storedAnalysis = await analysisStore.update(processingId, {
       processed: true,
       processing: false,
       ...analysis,
     })
 
-    console.log('Analysis complete:', processingId)
+    console.log(`[Upload] Analysis complete: ${processingId}`)
 
     return NextResponse.json({
       success: true,
@@ -103,11 +107,11 @@ export async function POST(request: NextRequest) {
       analysis: storedAnalysis,
     })
   } catch (error: any) {
-    console.error('Upload and analyze error:', error)
+    console.error('[Upload] Error:', error)
     
     // If there's a processing record, mark it as error
     if (processingId) {
-      analysisStore.update(processingId, {
+      await analysisStore.update(processingId, {
         processing: false,
         processed: false,
         error: error.message || 'Analysis failed',

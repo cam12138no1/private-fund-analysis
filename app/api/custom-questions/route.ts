@@ -2,8 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { openrouter } from '@/lib/openrouter'
-import { kv } from '@vercel/kv'
 import { CUSTOM_EXTRACTION_PROMPT, EVALUATION_SYSTEM_PROMPT } from '@/lib/ai/prompts'
+import { analysisStore } from '@/lib/store'
 
 /**
  * Custom Questions Extraction API
@@ -21,6 +21,9 @@ interface CustomQuestionsRequest {
   evaluationCategory?: string
 }
 
+// In-memory Q&A history (fallback when KV is not available)
+let qaHistory: any[] = []
+
 export async function POST(request: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
@@ -33,63 +36,58 @@ export async function POST(request: NextRequest) {
 
     if (!companySymbol || !questions || questions.length === 0) {
       return NextResponse.json(
-        { error: '请选择公司并输入问题' },
+        { error: 'Please select a company and enter questions' },
         { status: 400 }
       )
     }
 
-    // 尝试获取该公司的最新分析数据
-    const companyKey = `company:${companySymbol}`
-    const reportIds = await kv.get<string[]>(`reports:company:${companyKey}`) || []
-    
-    let latestAnalysis = null
-    let latestReport = null
-    
-    for (const reportId of reportIds.reverse()) {
-      const report = await kv.get<any>(reportId)
-      if (report && report.status === 'completed') {
-        const analysisId = await kv.get<string>(`analysis:report:${reportId}`)
-        if (analysisId) {
-          const analysis = await kv.get<any>(analysisId)
-          if (analysis) {
-            latestAnalysis = analysis.resultData
-            latestReport = report
-            break
-          }
-        }
-      }
-    }
+    console.log(`[CustomQ] Processing ${questions.length} questions for ${companySymbol}`)
 
-    // 选择合适的系统提示
+    // Get the latest analysis data for this company from our store
+    const allAnalyses = await analysisStore.getAll()
+    const companyAnalyses = allAnalyses.filter(a => 
+      a.company_symbol === companySymbol || 
+      a.company_symbol?.toUpperCase() === companySymbol.toUpperCase()
+    )
+    
+    const latestAnalysis = companyAnalyses.length > 0 ? companyAnalyses[0] : null
+
+    // Select appropriate system prompt
     const systemPrompt = evaluationCategory 
       ? EVALUATION_SYSTEM_PROMPT 
       : CUSTOM_EXTRACTION_PROMPT
 
-    const categoryName = category === 'AI_APPLICATION' ? 'AI应用公司' : 'AI供应链公司'
+    const categoryName = category === 'AI_APPLICATION' ? 'AI Application Company' : 'AI Supply Chain Company'
 
-    // 为每个问题生成答案
+    // Generate answer for each question
     const answers = []
 
     for (const question of questions) {
-      const userContent = latestAnalysis
-        ? `公司: ${companyName} (${companySymbol})
-类别: ${categoryName}
-报告期: ${latestReport?.fiscalQuarter ? `Q${latestReport.fiscalQuarter} ${latestReport.fiscalYear}` : latestReport?.fiscalYear || '最新'}
+      const userContent = latestAnalysis && latestAnalysis.processed
+        ? `Company: ${companyName} (${companySymbol})
+Category: ${categoryName}
+Report Period: ${latestAnalysis.fiscal_quarter ? `Q${latestAnalysis.fiscal_quarter} ${latestAnalysis.fiscal_year}` : `FY ${latestAnalysis.fiscal_year}`}
 
-财报分析数据:
-${JSON.stringify(latestAnalysis, null, 2)}
+Financial Report Analysis Data:
+- One-line Conclusion: ${latestAnalysis.one_line_conclusion || 'N/A'}
+- Results Summary: ${latestAnalysis.results_summary || 'N/A'}
+- Results Table: ${JSON.stringify(latestAnalysis.results_table || [], null, 2)}
+- Drivers: ${JSON.stringify(latestAnalysis.drivers || {}, null, 2)}
+- Investment ROI: ${JSON.stringify(latestAnalysis.investment_roi || {}, null, 2)}
+- Sustainability & Risks: ${JSON.stringify(latestAnalysis.sustainability_risks || {}, null, 2)}
+- Final Judgment: ${JSON.stringify(latestAnalysis.final_judgment || {}, null, 2)}
 
-用户问题: ${question}
+User Question: ${question}
 
-请详细回答这个问题，引用具体数据和指标。`
-        : `公司: ${companyName} (${companySymbol})
-类别: ${categoryName}
+Please answer this question in detail, citing specific data and metrics.`
+        : `Company: ${companyName} (${companySymbol})
+Category: ${categoryName}
 
-注意: 该公司尚无已分析的财报数据，请基于公开市场信息和行业知识回答。
+Note: No analyzed financial report data available for this company. Please answer based on public market information and industry knowledge.
 
-用户问题: ${question}
+User Question: ${question}
 
-请基于公开信息尽可能详细地回答这个问题。`
+Please answer this question as thoroughly as possible based on public information.`
 
       const response = await openrouter.chat({
         model: 'google/gemini-2.5-flash-preview',
@@ -112,8 +110,8 @@ ${JSON.stringify(latestAnalysis, null, 2)}
       })
     }
 
-    // 保存问答记录到KV
-    const qaId = `customq:${Date.now()}:${Math.random().toString(36).substr(2, 9)}`
+    // Save Q&A record
+    const qaId = `customq_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
     const qaData = {
       id: qaId,
       companySymbol,
@@ -126,12 +124,13 @@ ${JSON.stringify(latestAnalysis, null, 2)}
       created_by: (session.user as any)?.id || 'anonymous'
     }
     
-    await kv.set(qaId, qaData)
-    
-    // 添加到问答历史索引
-    const qaIds = await kv.get<string[]>('customquestions:all') || []
-    qaIds.push(qaId)
-    await kv.set('customquestions:all', qaIds)
+    // Store in memory
+    qaHistory.unshift(qaData)
+    if (qaHistory.length > 50) {
+      qaHistory = qaHistory.slice(0, 50)
+    }
+
+    console.log(`[CustomQ] Generated answers: ${qaId}`)
 
     return NextResponse.json({
       success: true,
@@ -143,9 +142,9 @@ ${JSON.stringify(latestAnalysis, null, 2)}
     })
 
   } catch (error: any) {
-    console.error('Custom questions error:', error)
+    console.error('[CustomQ] Error:', error)
     return NextResponse.json(
-      { error: error.message || '问题处理失败' },
+      { error: error.message || 'Question processing failed' },
       { status: 500 }
     )
   }
@@ -163,24 +162,16 @@ export async function GET(request: NextRequest) {
     const companySymbol = searchParams.get('companySymbol')
     const limit = parseInt(searchParams.get('limit') || '10')
 
-    // 从KV获取问答历史
-    const qaIds = await kv.get<string[]>('customquestions:all') || []
-    const recentIds = qaIds.slice(-limit).reverse()
+    let qas = qaHistory.slice(0, limit)
     
-    let qas = await Promise.all(
-      recentIds.map(id => kv.get<any>(id))
-    )
-    
-    qas = qas.filter(Boolean)
-    
-    // 如果指定了公司，过滤
+    // Filter by company if specified
     if (companySymbol) {
       qas = qas.filter(qa => qa.companySymbol === companySymbol)
     }
 
     return NextResponse.json({ qas })
   } catch (error: any) {
-    console.error('Get Q&A error:', error)
+    console.error('[CustomQ] Get error:', error)
     return NextResponse.json(
       { error: error.message || 'Failed to fetch Q&A' },
       { status: 500 }

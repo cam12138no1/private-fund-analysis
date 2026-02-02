@@ -1,6 +1,7 @@
-// In-memory storage for demo mode (when no database is configured)
-// This store persists across API requests in the same server instance
+// Hybrid storage: Uses Vercel KV when available, falls back to in-memory for development
+// This ensures data persists across serverless function invocations
 
+import { kv } from '@vercel/kv'
 import { AnalysisResult, ResultsTableRow, DriverDetail } from './ai/analyzer'
 
 export interface StoredAnalysis {
@@ -13,10 +14,10 @@ export interface StoredAnalysis {
   filing_date: string
   created_at: string
   processed: boolean
-  processing?: boolean  // 正在处理中
-  error?: string        // 处理错误
+  processing?: boolean
+  error?: string
   
-  // 完整分析结果
+  // Complete analysis results
   one_line_conclusion?: string
   results_summary?: string
   results_table?: ResultsTableRow[]
@@ -51,55 +52,152 @@ export interface StoredAnalysis {
     net_impact: string
     recommendation: string
   }
+  metadata?: {
+    company_category: string
+    analysis_timestamp: string
+    prompt_version: string
+  }
+}
+
+const ANALYSES_KEY = 'financial_analyses'
+const COUNTER_KEY = 'analysis_counter'
+
+// Check if KV is available
+function isKVAvailable(): boolean {
+  return !!(process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN)
 }
 
 class AnalysisStore {
-  private analyses: Map<string, StoredAnalysis> = new Map()
-  private counter: number = 0
+  private memoryStore: Map<string, StoredAnalysis> = new Map()
+  private memoryCounter: number = 0
+  private useKV: boolean
 
-  add(analysis: Omit<StoredAnalysis, 'id'>): StoredAnalysis {
-    this.counter++
-    const id = `analysis_${this.counter}_${Date.now()}`
+  constructor() {
+    this.useKV = isKVAvailable()
+    console.log(`AnalysisStore initialized. Using KV: ${this.useKV}`)
+  }
+
+  async add(analysis: Omit<StoredAnalysis, 'id'>): Promise<StoredAnalysis> {
+    if (this.useKV) {
+      try {
+        // Get and increment counter
+        let counter = await kv.get<number>(COUNTER_KEY) || 0
+        counter++
+        await kv.set(COUNTER_KEY, counter)
+        
+        const id = `analysis_${counter}_${Date.now()}`
+        const storedAnalysis: StoredAnalysis = { id, ...analysis }
+        
+        // Get existing analyses
+        const analyses = await kv.get<Record<string, StoredAnalysis>>(ANALYSES_KEY) || {}
+        analyses[id] = storedAnalysis
+        await kv.set(ANALYSES_KEY, analyses)
+        
+        console.log(`[KV] Added analysis: ${id}`)
+        return storedAnalysis
+      } catch (error) {
+        console.error('[KV] Error adding analysis, falling back to memory:', error)
+        // Fall back to memory
+      }
+    }
+    
+    // Memory fallback
+    this.memoryCounter++
+    const id = `analysis_${this.memoryCounter}_${Date.now()}`
     const storedAnalysis: StoredAnalysis = { id, ...analysis }
-    this.analyses.set(id, storedAnalysis)
+    this.memoryStore.set(id, storedAnalysis)
+    console.log(`[Memory] Added analysis: ${id}`)
     return storedAnalysis
   }
 
-  // 更新已存在的分析
-  update(id: string, updates: Partial<StoredAnalysis>): StoredAnalysis | undefined {
-    const existing = this.analyses.get(id)
+  async update(id: string, updates: Partial<StoredAnalysis>): Promise<StoredAnalysis | undefined> {
+    if (this.useKV) {
+      try {
+        const analyses = await kv.get<Record<string, StoredAnalysis>>(ANALYSES_KEY) || {}
+        const existing = analyses[id]
+        if (!existing) {
+          console.log(`[KV] Analysis not found for update: ${id}`)
+          return undefined
+        }
+        
+        const updated = { ...existing, ...updates }
+        analyses[id] = updated
+        await kv.set(ANALYSES_KEY, analyses)
+        
+        console.log(`[KV] Updated analysis: ${id}`)
+        return updated
+      } catch (error) {
+        console.error('[KV] Error updating analysis:', error)
+      }
+    }
+    
+    // Memory fallback
+    const existing = this.memoryStore.get(id)
     if (!existing) return undefined
     const updated = { ...existing, ...updates }
-    this.analyses.set(id, updated)
+    this.memoryStore.set(id, updated)
+    console.log(`[Memory] Updated analysis: ${id}`)
     return updated
   }
 
-  get(id: string): StoredAnalysis | undefined {
-    return this.analyses.get(id)
+  async get(id: string): Promise<StoredAnalysis | undefined> {
+    if (this.useKV) {
+      try {
+        const analyses = await kv.get<Record<string, StoredAnalysis>>(ANALYSES_KEY) || {}
+        return analyses[id]
+      } catch (error) {
+        console.error('[KV] Error getting analysis:', error)
+      }
+    }
+    return this.memoryStore.get(id)
   }
 
-  getAll(): StoredAnalysis[] {
-    return Array.from(this.analyses.values()).sort(
+  async getAll(): Promise<StoredAnalysis[]> {
+    if (this.useKV) {
+      try {
+        const analyses = await kv.get<Record<string, StoredAnalysis>>(ANALYSES_KEY) || {}
+        const result = Object.values(analyses).sort(
+          (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+        )
+        console.log(`[KV] Retrieved ${result.length} analyses`)
+        return result
+      } catch (error) {
+        console.error('[KV] Error getting all analyses:', error)
+      }
+    }
+    
+    return Array.from(this.memoryStore.values()).sort(
       (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
     )
   }
 
-  // 获取处理中的数量
-  getProcessingCount(): number {
-    return Array.from(this.analyses.values()).filter(a => a.processing).length
+  async getProcessingCount(): Promise<number> {
+    const all = await this.getAll()
+    return all.filter(a => a.processing).length
   }
 
-  getByCompany(symbol: string): StoredAnalysis[] {
-    return this.getAll().filter(a => a.company_symbol === symbol)
+  async getByCompany(symbol: string): Promise<StoredAnalysis[]> {
+    const all = await this.getAll()
+    return all.filter(a => a.company_symbol === symbol)
   }
 
-  clear(): void {
-    this.analyses.clear()
-    this.counter = 0
+  async clear(): Promise<void> {
+    if (this.useKV) {
+      try {
+        await kv.del(ANALYSES_KEY)
+        await kv.set(COUNTER_KEY, 0)
+        console.log('[KV] Cleared all analyses')
+      } catch (error) {
+        console.error('[KV] Error clearing analyses:', error)
+      }
+    }
+    this.memoryStore.clear()
+    this.memoryCounter = 0
   }
 
-  get size(): number {
-    return this.analyses.size
+  async size(): Promise<number> {
+    const all = await this.getAll()
+    return all.length
   }
 }
 

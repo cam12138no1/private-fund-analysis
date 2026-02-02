@@ -3,6 +3,8 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { analysisStore } from '@/lib/store'
 
+export const dynamic = 'force-dynamic'
+
 export async function GET(request: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
@@ -10,8 +12,10 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    // Use in-memory store for demo mode
-    const allAnalyses = analysisStore.getAll()
+    // Use async store methods
+    const allAnalyses = await analysisStore.getAll()
+    
+    console.log(`[Reports API] Retrieved ${allAnalyses.length} analyses`)
     
     // Group by company
     const companiesMap = new Map<string, any>()
@@ -34,6 +38,8 @@ export async function GET(request: NextRequest) {
         fiscal_quarter: analysis.fiscal_quarter,
         filing_date: analysis.filing_date,
         processed: analysis.processed,
+        processing: analysis.processing,
+        error: analysis.error,
         analysis: analysis,
       })
     }
