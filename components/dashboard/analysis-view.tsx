@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef } from 'react'
+import { useRef, useState } from 'react'
 import { useLocale, useTranslations } from 'next-intl'
 import { 
   ArrowLeft, 
@@ -30,46 +30,64 @@ export default function AnalysisView({ analysis, onBack }: AnalysisViewProps) {
   const locale = useLocale()
   const reportRef = useRef<HTMLDivElement>(null)
 
+  const [isExporting, setIsExporting] = useState(false)
+
   const handleExportPdf = async () => {
-    if (!reportRef.current) return
+    if (!reportRef.current || isExporting) return
     
-    // Dynamic import html2canvas and jspdf
-    const html2canvas = (await import('html2canvas')).default
-    const { jsPDF } = await import('jspdf')
+    setIsExporting(true)
     
-    const element = reportRef.current
-    const canvas = await html2canvas(element, {
-      scale: 2,
-      useCORS: true,
-      logging: false,
-      backgroundColor: '#f9fafb'
-    })
-    
-    const imgData = canvas.toDataURL('image/png')
-    const pdf = new jsPDF({
-      orientation: 'portrait',
-      unit: 'mm',
-      format: 'a4'
-    })
-    
-    const imgWidth = 210 // A4 width in mm
-    const pageHeight = 297 // A4 height in mm
-    const imgHeight = (canvas.height * imgWidth) / canvas.width
-    let heightLeft = imgHeight
-    let position = 0
-    
-    pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight)
-    heightLeft -= pageHeight
-    
-    while (heightLeft >= 0) {
-      position = heightLeft - imgHeight
-      pdf.addPage()
+    try {
+      // Dynamic import html2canvas and jspdf
+      const html2canvas = (await import('html2canvas')).default
+      const { jsPDF } = await import('jspdf')
+      
+      const element = reportRef.current
+      
+      // Create canvas with better settings
+      const canvas = await html2canvas(element, {
+        scale: 2,
+        useCORS: true,
+        logging: false,
+        backgroundColor: '#ffffff',
+        allowTaint: true,
+        windowWidth: element.scrollWidth,
+        windowHeight: element.scrollHeight
+      })
+      
+      const imgData = canvas.toDataURL('image/png', 1.0)
+      const pdf = new jsPDF({
+        orientation: 'portrait',
+        unit: 'mm',
+        format: 'a4'
+      })
+      
+      const imgWidth = 210 // A4 width in mm
+      const pageHeight = 297 // A4 height in mm
+      const imgHeight = (canvas.height * imgWidth) / canvas.width
+      let heightLeft = imgHeight
+      let position = 0
+      
+      // Add first page
       pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight)
       heightLeft -= pageHeight
+      
+      // Add additional pages if needed
+      while (heightLeft > 0) {
+        position = heightLeft - imgHeight
+        pdf.addPage()
+        pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight)
+        heightLeft -= pageHeight
+      }
+      
+      const filename = `${analysis.company_symbol}_${analysis.fiscal_year}${analysis.fiscal_quarter ? `Q${analysis.fiscal_quarter}` : 'FY'}_分析报告.pdf`
+      pdf.save(filename)
+    } catch (error) {
+      console.error('PDF导出失败:', error)
+      alert('PDF导出失败，请重试')
+    } finally {
+      setIsExporting(false)
     }
-    
-    const filename = `${analysis.company_symbol}_${analysis.fiscal_year}${analysis.fiscal_quarter ? `Q${analysis.fiscal_quarter}` : 'FY'}_分析报告.pdf`
-    pdf.save(filename)
   }
 
   const getAssessmentColor = (assessment: string) => {
@@ -113,9 +131,22 @@ export default function AnalysisView({ analysis, onBack }: AnalysisViewProps) {
             </div>
           </div>
         </div>
-        <Button onClick={handleExportPdf} className="bg-gradient-to-r from-blue-600 to-indigo-600">
-          <FileText className="h-4 w-4 mr-2" />
-          导出PDF
+        <Button 
+          onClick={handleExportPdf} 
+          disabled={isExporting}
+          className="bg-gradient-to-r from-blue-600 to-indigo-600"
+        >
+          {isExporting ? (
+            <>
+              <Download className="h-4 w-4 mr-2 animate-bounce" />
+              导出中...
+            </>
+          ) : (
+            <>
+              <FileText className="h-4 w-4 mr-2" />
+              导出PDF
+            </>
+          )}
         </Button>
       </div>
 

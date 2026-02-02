@@ -1,18 +1,32 @@
 'use client'
 
-import { FileText, LogOut, TrendingUp, GitCompare } from 'lucide-react'
+import { FileText, LogOut, LayoutGrid, Table2 } from 'lucide-react'
 import { usePathname } from 'next/navigation'
 import Link from 'next/link'
 import { signOut } from 'next-auth/react'
 import { Button } from '@/components/ui/button'
+import Image from 'next/image'
 
 export default function Sidebar() {
   const pathname = usePathname()
 
-  // 精简导航 - 只保留两个核心功能
+  // 精简导航 - 两个核心功能
   const navigation = [
-    { name: '财报分析', href: '/dashboard', icon: FileText, description: '上传并分析财报' },
-    { name: '横向对比', href: '/dashboard/comparison', icon: GitCompare, description: '同类公司对比' },
+    { 
+      name: '首页', 
+      href: '/dashboard', 
+      icon: LayoutGrid, 
+      description: '报告管理与分析',
+      // 匹配 /dashboard 和 /dashboard/reports/*
+      isActive: (path: string) => path === '/dashboard' || path.startsWith('/dashboard/reports')
+    },
+    { 
+      name: '横向对比', 
+      href: '/dashboard/comparison', 
+      icon: Table2, 
+      description: '公司关键指标对比表',
+      isActive: (path: string) => path === '/dashboard/comparison'
+    },
   ]
 
   return (
@@ -20,8 +34,14 @@ export default function Sidebar() {
       {/* Logo */}
       <div className="h-20 flex items-center px-6 border-b border-slate-700/50">
         <div className="flex items-center gap-3">
-          <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-blue-500/30">
-            <TrendingUp className="h-5 w-5 text-white" />
+          <div className="h-10 w-10 rounded-xl overflow-hidden shadow-lg shadow-blue-500/30">
+            <Image 
+              src="/logo.png" 
+              alt="智析财报" 
+              width={40} 
+              height={40}
+              className="object-cover"
+            />
           </div>
           <div>
             <h1 className="text-lg font-bold text-white">
@@ -36,9 +56,7 @@ export default function Sidebar() {
       <nav className="flex-1 px-3 py-6 space-y-2">
         {navigation.map((item) => {
           const Icon = item.icon
-          // Check if current path starts with the nav item href (for nested routes)
-          const isActive = pathname === item.href || 
-            (item.href === '/dashboard' && pathname.startsWith('/dashboard/reports'))
+          const isActive = item.isActive(pathname)
           
           return (
             <Link
