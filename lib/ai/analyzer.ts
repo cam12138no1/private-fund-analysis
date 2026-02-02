@@ -18,73 +18,73 @@ export interface ReportMetadata {
 
 // Results table row structure
 export interface ResultsTableRow {
-  metric: string           // Metric name
-  actual: string           // Actual value
-  consensus: string        // Market expectation
-  delta: string            // Difference
-  assessment: string       // Assessment (Beat/Miss/Inline)
+  metric: string           // 指标名称
+  actual: string           // 实际值
+  consensus: string        // 市场预期
+  delta: string            // 差异
+  assessment: string       // 评估 (Beat/Miss/Inline)
 }
 
 // Driver detail structure
 export interface DriverDetail {
-  category: string         // A/B/C category
-  title: string            // Title
-  change: string           // Change description
-  magnitude: string        // Magnitude
-  reason: string           // Reason analysis
+  category: string         // A/B/C 分类
+  title: string            // 标题
+  change: string           // 变化描述
+  magnitude: string        // 幅度
+  reason: string           // 原因分析
 }
 
 // Complete analysis result
 export interface AnalysisResult {
-  // 0) One-line conclusion
+  // 0) 一句话结论
   one_line_conclusion: string
   
-  // 1) Results layer - tabular
-  results_summary: string  // Performance summary
+  // 1) 结果层 - 表格形式
+  results_summary: string  // 业绩概要
   results_table: ResultsTableRow[]
-  results_explanation: string  // Key explanation
+  results_explanation: string  // 关键解释
   
-  // 2) Driver layer
-  drivers_summary: string  // Driver summary
+  // 2) 驱动层
+  drivers_summary: string  // 驱动概要
   drivers: {
-    demand: DriverDetail      // A. Demand/Volume
-    monetization: DriverDetail // B. Monetization/Pricing
-    efficiency: DriverDetail   // C. Internal efficiency
+    demand: DriverDetail      // A. 需求/量
+    monetization: DriverDetail // B. 变现/单价
+    efficiency: DriverDetail   // C. 内部效率
   }
   
-  // 3) Investment & ROI
+  // 3) 投入与ROI
   investment_roi: {
-    capex_change: string       // CapEx change
-    opex_change: string        // Opex change
-    investment_direction: string // Investment direction
-    roi_evidence: string[]     // ROI evidence list
-    management_commitment: string // Management commitment
+    capex_change: string       // CapEx变化
+    opex_change: string        // Opex变化
+    investment_direction: string // 投入方向
+    roi_evidence: string[]     // ROI证据列表
+    management_commitment: string // 管理层承诺
   }
   
-  // 4) Sustainability & Risks
+  // 4) 可持续性与风险
   sustainability_risks: {
     sustainable_drivers: string[]
     main_risks: string[]
     checkpoints: string[]
   }
   
-  // 5) Model Impact
+  // 5) 模型影响
   model_impact: {
-    revenue_adjustment: string   // Revenue assumption adjustment
-    capex_adjustment: string     // CapEx assumption adjustment
-    valuation_change: string     // Valuation change
-    logic_chain: string          // Logic chain
+    revenue_adjustment: string   // 收入假设调整
+    capex_adjustment: string     // CapEx假设调整
+    valuation_change: string     // 估值变化
+    logic_chain: string          // 逻辑链
   }
   
-  // 6) Investment Committee Judgment
+  // 6) 投委会判断
   final_judgment: {
-    confidence: string          // More confident about
-    concerns: string            // More concerned about
-    net_impact: string          // Net impact (Stronger/Weaker/Unchanged)
-    recommendation: string      // Recommendation
+    confidence: string          // 更有信心的点
+    concerns: string            // 更担心的点
+    net_impact: string          // 净影响 (更强/更弱/不变)
+    recommendation: string      // 建议
   }
   
-  // Metadata
+  // 元数据
   metadata?: {
     company_category: string
     analysis_timestamp: string
@@ -92,87 +92,88 @@ export interface AnalysisResult {
   }
 }
 
-// JSON output format system prompt
+// JSON输出格式系统提示 - 中文版
 const JSON_OUTPUT_INSTRUCTION = `
 
-Please strictly output the analysis results in the following JSON format:
+请严格按照以下JSON格式输出分析结果，所有内容必须使用中文：
 
 {
-  "one_line_conclusion": "One-line conclusion: Beat/Miss + key driver + main risk",
+  "one_line_conclusion": "一句话结论：Beat/Miss + 最关键驱动 + 最大风险",
   
-  "results_summary": "Results layer summary",
+  "results_summary": "结果层概要",
   
   "results_table": [
-    {"metric": "Revenue", "actual": "$XXB", "consensus": "~$XXB", "delta": "+X%", "assessment": "Beat/Miss/Inline (reason)"},
-    {"metric": "EPS (Diluted)", "actual": "$X.XX", "consensus": "~$X.XX", "delta": "+X%", "assessment": "Beat/Miss/Inline"},
-    {"metric": "Operating Income", "actual": "$XXB", "consensus": "~$XXB", "delta": "+X%", "assessment": "Beat/Miss/Inline"},
-    {"metric": "Gross Margin", "actual": "XX%", "consensus": "~XX%", "delta": "+Xbps", "assessment": "Improved/Deteriorated"},
-    {"metric": "Operating Margin", "actual": "XX%", "consensus": "~XX%", "delta": "+Xbps", "assessment": "Improved/Deteriorated"},
-    {"metric": "Guidance (Next Q/FY)", "actual": "$XX-XXB", "consensus": "~$XXB", "delta": "+X%", "assessment": "Strong Beat/Miss"}
+    {"metric": "营收 (Revenue)", "actual": "$XXB", "consensus": "~$XXB", "delta": "+X%", "assessment": "超预期/不及预期/符合预期 (原因)"},
+    {"metric": "每股收益 (EPS)", "actual": "$X.XX", "consensus": "~$X.XX", "delta": "+X%", "assessment": "超预期/不及预期/符合预期"},
+    {"metric": "营业利润 (Operating Income)", "actual": "$XXB", "consensus": "~$XXB", "delta": "+X%", "assessment": "超预期/不及预期/符合预期"},
+    {"metric": "毛利率 (Gross Margin)", "actual": "XX%", "consensus": "~XX%", "delta": "+Xbps", "assessment": "改善/恶化"},
+    {"metric": "营业利润率 (Operating Margin)", "actual": "XX%", "consensus": "~XX%", "delta": "+Xbps", "assessment": "改善/恶化"},
+    {"metric": "指引 (下季度/全年)", "actual": "$XX-XXB", "consensus": "~$XXB", "delta": "+X%", "assessment": "大幅超预期/不及预期"}
   ],
   
-  "results_explanation": "Key explanation: Revenue beat driven by...; Variance mainly from...",
+  "results_explanation": "关键解释：营收超预期主要由...驱动；差异主要来自...",
   
-  "drivers_summary": "Driver summary",
+  "drivers_summary": "驱动层概要",
   
   "drivers": {
     "demand": {
       "category": "A",
-      "title": "Demand/Volume",
-      "change": "Specific change description (metric + direction + magnitude)",
-      "magnitude": "Magnitude (e.g., +X% YoY)",
-      "reason": "Reason analysis (product/algorithm/channel/supply/organization)"
+      "title": "需求/量",
+      "change": "具体变化描述（指标 + 方向 + 幅度）",
+      "magnitude": "幅度（如 +X% YoY）",
+      "reason": "原因分析（产品/算法/渠道/供给/组织）"
     },
     "monetization": {
       "category": "B",
-      "title": "Monetization/Pricing",
-      "change": "Specific change description",
-      "magnitude": "Magnitude",
-      "reason": "Reason analysis"
+      "title": "变现/单价",
+      "change": "具体变化描述",
+      "magnitude": "幅度",
+      "reason": "原因分析"
     },
     "efficiency": {
       "category": "C",
-      "title": "Internal Efficiency",
-      "change": "Specific change description",
-      "magnitude": "Magnitude",
-      "reason": "Reason analysis"
+      "title": "内部效率",
+      "change": "具体变化描述",
+      "magnitude": "幅度",
+      "reason": "原因分析"
     }
   },
   
   "investment_roi": {
-    "capex_change": "CapEx change description",
-    "opex_change": "Opex change description",
-    "investment_direction": "Investment direction: compute/talent/channel/supply chain/M&A",
-    "roi_evidence": ["ROI evidence 1", "ROI evidence 2", "ROI evidence 3"],
-    "management_commitment": "Management bottom-line commitment"
+    "capex_change": "资本支出变化描述",
+    "opex_change": "运营支出变化描述",
+    "investment_direction": "投入方向：算力/人才/渠道/供应链/并购",
+    "roi_evidence": ["ROI证据1", "ROI证据2", "ROI证据3"],
+    "management_commitment": "管理层底线承诺"
   },
   
   "sustainability_risks": {
-    "sustainable_drivers": ["Sustainable driver 1", "Sustainable driver 2", "Sustainable driver 3"],
-    "main_risks": ["Main risk 1: description", "Main risk 2: description", "Main risk 3: description"],
-    "checkpoints": ["Checkpoint 1", "Checkpoint 2", "Checkpoint 3"]
+    "sustainable_drivers": ["可持续驱动1", "可持续驱动2", "可持续驱动3"],
+    "main_risks": ["主要风险1：描述", "主要风险2：描述", "主要风险3：描述"],
+    "checkpoints": ["检查点1", "检查点2", "检查点3"]
   },
   
   "model_impact": {
-    "revenue_adjustment": "Revenue assumption adjustment",
-    "capex_adjustment": "CapEx assumption adjustment",
-    "valuation_change": "Valuation change",
-    "logic_chain": "Logic chain: Earnings signal → Assumption change → Valuation change"
+    "revenue_adjustment": "收入假设调整",
+    "capex_adjustment": "资本支出假设调整",
+    "valuation_change": "估值变化",
+    "logic_chain": "逻辑链：财报信号 → 假设变化 → 估值变化"
   },
   
   "final_judgment": {
-    "confidence": "We are more confident about...",
-    "concerns": "We are more concerned about...",
-    "net_impact": "Stronger/Weaker/Unchanged",
-    "recommendation": "Recommendation"
+    "confidence": "我们更有信心的点...",
+    "concerns": "我们更担心的点...",
+    "net_impact": "更强/更弱/不变",
+    "recommendation": "投资建议"
   }
 }
 
-Important requirements:
-1. results_table must contain at least 5-7 rows of key metrics
-2. Every field must be filled with complete content, cannot be left empty
-3. All numbers must be specific, no placeholders
-4. Must strictly follow JSON format`
+重要要求：
+1. results_table必须包含至少5-7行关键指标
+2. 每个字段都必须填写完整内容，不能留空
+3. 所有数字必须是具体的，不能用占位符
+4. 必须严格遵循JSON格式
+5. 所有分析内容必须使用中文输出`
 
 export async function analyzeFinancialReport(
   reportText: string,
@@ -200,13 +201,13 @@ export async function analyzeFinancialReport(
       categoryNameEn: categoryConfig.nameEn,
       prompt: categoryConfig.prompt,
     }
-    console.log(`Using user-selected category: ${metadata.category}`)
+    console.log(`使用用户选择的分类: ${metadata.category}`)
   } else {
     // Auto-detect based on company symbol/name
     companyInfo = getCompanyCategory(metadata.symbol || metadata.company)
   }
   
-  console.log(`Analyzing ${metadata.company} (${metadata.symbol}) as ${companyInfo.categoryName}`)
+  console.log(`正在分析 ${metadata.company} (${metadata.symbol})，分类为 ${companyInfo.categoryName}`)
   
   // Build complete system prompt
   const systemPrompt = companyInfo.prompt + JSON_OUTPUT_INSTRUCTION
@@ -220,15 +221,15 @@ export async function analyzeFinancialReport(
       },
       {
         role: 'user',
-        content: `Company: ${metadata.company} (${metadata.symbol})
-Report Period: ${metadata.period}
-Company Category: ${companyInfo.categoryNameEn}
-Market Consensus: ${JSON.stringify(metadata.consensus || {}, null, 2)}
+        content: `公司：${metadata.company} (${metadata.symbol})
+报告期：${metadata.period}
+公司分类：${companyInfo.categoryName}
+市场预期：${JSON.stringify(metadata.consensus || {}, null, 2)}
 
-Financial Report Content:
+财报内容：
 ${reportText}
 
-Please strictly output complete analysis in JSON format, ensuring every field has detailed content. results_table must contain 5-7 rows of key financial metrics comparison.`,
+请严格按JSON格式输出完整分析，确保每个字段都有详细内容。results_table必须包含5-7行关键财务指标对比。所有内容使用中文。`,
       },
     ],
     response_format: {
@@ -365,27 +366,28 @@ Please strictly output complete analysis in JSON format, ensuring every field ha
       },
     },
     temperature: 0.3,
+    max_tokens: 8000,
   })
 
-  const content = response.choices[0].message.content
-  const result = JSON.parse(content)
-  
-  // Add metadata
-  result.metadata = {
-    company_category: companyInfo.category,
-    analysis_timestamp: new Date().toISOString(),
-    prompt_version: '2.0'
+  const content = response.choices[0]?.message?.content
+  if (!content) {
+    throw new Error('AI分析返回空结果')
   }
-  
-  return result
-}
 
-// Batch analyze multiple reports (for comparison)
-export async function analyzeMultipleReports(
-  reports: Array<{ text: string; metadata: ReportMetadata }>
-): Promise<AnalysisResult[]> {
-  const results = await Promise.all(
-    reports.map(report => analyzeFinancialReport(report.text, report.metadata))
-  )
-  return results
+  try {
+    const result = JSON.parse(content) as AnalysisResult
+    
+    // Add metadata
+    result.metadata = {
+      company_category: companyInfo.categoryName,
+      analysis_timestamp: new Date().toISOString(),
+      prompt_version: '2.0-zh',
+    }
+    
+    return result
+  } catch (parseError) {
+    console.error('解析AI响应失败:', parseError)
+    console.error('原始响应:', content)
+    throw new Error('解析AI分析结果失败')
+  }
 }

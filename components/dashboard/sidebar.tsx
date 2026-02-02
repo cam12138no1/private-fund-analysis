@@ -1,23 +1,21 @@
 'use client'
 
-import { useTranslations } from 'next-intl'
-import { LayoutDashboard, FileText, Settings, LogOut, TableProperties, TrendingUp, GitCompare, MessageSquarePlus } from 'lucide-react'
+import { LayoutDashboard, FileText, Settings, LogOut, TrendingUp, GitCompare, MessageSquarePlus } from 'lucide-react'
 import { usePathname } from 'next/navigation'
 import Link from 'next/link'
 import { signOut } from 'next-auth/react'
 import { Button } from '@/components/ui/button'
 
 export default function Sidebar() {
-  const t = useTranslations()
   const pathname = usePathname()
 
+  // 简化后的导航 - 删除冗余Tab
   const navigation = [
-    { name: t('nav.dashboard'), href: '/dashboard', icon: LayoutDashboard },
-    { name: t('nav.summary'), href: '/dashboard/summary', icon: TableProperties, badge: 'NEW' },
-    { name: t('nav.reports'), href: '/dashboard/reports', icon: FileText },
-    { name: t('nav.comparison'), href: '/dashboard/comparison', icon: GitCompare, badge: 'NEW' },
-    { name: t('nav.customQuestions'), href: '/dashboard/custom-questions', icon: MessageSquarePlus, badge: 'NEW' },
-    { name: t('nav.settings'), href: '/dashboard/settings', icon: Settings },
+    { name: '仪表板', href: '/dashboard', icon: LayoutDashboard },
+    { name: '财报分析', href: '/dashboard/reports', icon: FileText },
+    { name: '横向对比', href: '/dashboard/comparison', icon: GitCompare },
+    { name: '自定义问题', href: '/dashboard/custom-questions', icon: MessageSquarePlus },
+    { name: '设置', href: '/dashboard/settings', icon: Settings },
   ]
 
   return (
@@ -29,7 +27,7 @@ export default function Sidebar() {
             <TrendingUp className="h-4 w-4 text-white" />
           </div>
           <h1 className="text-lg font-bold text-white">
-            {t('common.appName')}
+            财报分析平台
           </h1>
         </div>
       </div>
@@ -52,11 +50,6 @@ export default function Sidebar() {
             >
               <Icon className={`mr-3 h-5 w-5 ${isActive ? 'text-white' : 'text-slate-400'}`} />
               <span className="flex-1">{item.name}</span>
-              {(item as any).badge && (
-                <span className="px-1.5 py-0.5 text-[10px] font-bold bg-amber-500 text-white rounded">
-                  {(item as any).badge}
-                </span>
-              )}
             </Link>
           )
         })}
@@ -69,7 +62,7 @@ export default function Sidebar() {
             A
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium text-white truncate">Admin</p>
+            <p className="text-sm font-medium text-white truncate">管理员</p>
             <p className="text-xs text-slate-400 truncate">admin@example.com</p>
           </div>
         </div>
@@ -79,7 +72,7 @@ export default function Sidebar() {
           onClick={() => signOut({ callbackUrl: '/auth/signin' })}
         >
           <LogOut className="mr-3 h-5 w-5 text-slate-400" />
-          {t('nav.logout')}
+          退出登录
         </Button>
       </div>
     </div>

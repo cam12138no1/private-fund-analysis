@@ -11,6 +11,7 @@ export class OpenRouterClient {
     messages: Array<{ role: string; content: string }>
     response_format?: any
     temperature?: number
+    max_tokens?: number
   }) {
     const response = await fetch(`${this.baseURL}/chat/completions`, {
       method: 'POST',
@@ -24,6 +25,7 @@ export class OpenRouterClient {
         messages: params.messages,
         response_format: params.response_format,
         temperature: params.temperature ?? 0.7,
+        max_tokens: params.max_tokens ?? 8000,
       }),
     })
 
