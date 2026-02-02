@@ -34,12 +34,23 @@ export async function POST(request: NextRequest) {
   let requestId: string | null = null
   
   try {
+    console.log('[上传] 收到上传请求')
+    
     const session = await getServerSession(authOptions)
     if (!session) {
       return NextResponse.json({ error: '未授权访问' }, { status: 401 })
     }
 
-    const formData = await request.formData()
+    // Parse form data with error handling
+    let formData: FormData
+    try {
+      formData = await request.formData()
+    } catch (formError: any) {
+      console.error('[上传] FormData解析失败:', formError.message)
+      return NextResponse.json({ 
+        error: `文件上传失败: ${formError.message.includes('body') ? '文件过大或格式错误' : formError.message}` 
+      }, { status: 400 })
+    }
     
     // 获取请求ID
     requestId = formData.get('requestId') as string | null
@@ -106,6 +117,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: '请上传至少一份财报文件' }, { status: 400 })
     }
 
+    // Calculate total file size
+    const totalSize = [...financialFiles, ...researchFiles].reduce((acc, f) => acc + f.size, 0)
+    console.log(`[上传] 文件总大小: ${(totalSize / 1024 / 1024).toFixed(2)} MB`)
+    
+    // Warn if files are very large
+    if (totalSize > 30 * 1024 * 1024) {
+      console.warn(`[上传] 文件较大 (${(totalSize / 1024 / 1024).toFixed(2)} MB)，处理可能需要较长时间`)
+    }
+
     // Validate all files are PDFs
     for (const file of [...financialFiles, ...researchFiles]) {
       if (file.type !== 'application/pdf') {
@@ -126,10 +146,16 @@ export async function POST(request: NextRequest) {
     console.log('[上传] 正在提取财报文本...')
     let financialText = ''
     for (const file of financialFiles) {
-      const buffer = Buffer.from(await file.arrayBuffer())
-      const text = await extractTextFromDocument(buffer, file.type)
-      if (text) {
-        financialText += `\n\n=== 财报文件: ${file.name} ===\n\n${text}`
+      try {
+        const buffer = Buffer.from(await file.arrayBuffer())
+        console.log(`[上传] 解析文件: ${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB)`)
+        const text = await extractTextFromDocument(buffer, file.type)
+        if (text) {
+          financialText += `\n\n=== 财报文件: ${file.name} ===\n\n${text}`
+        }
+      } catch (extractError: any) {
+        console.error(`[上传] 提取文件 ${file.name} 失败:`, extractError.message)
+        // Continue with other files instead of failing completely
       }
     }
 
@@ -141,7 +167,7 @@ export async function POST(request: NextRequest) {
           status: 'error',
         })
       }
-      return NextResponse.json({ error: '无法从财报PDF中提取文本' }, { status: 400 })
+      return NextResponse.json({ error: '无法从财报PDF中提取足够的文本内容，请确保PDF不是扫描件' }, { status: 400 })
     }
 
     console.log(`[上传] 已提取财报文本 ${financialText.length} 字符`)
@@ -151,10 +177,15 @@ export async function POST(request: NextRequest) {
     if (researchFiles.length > 0) {
       console.log('[上传] 正在提取研报文本...')
       for (const file of researchFiles) {
-        const buffer = Buffer.from(await file.arrayBuffer())
-        const text = await extractTextFromDocument(buffer, file.type)
-        if (text) {
-          researchText += `\n\n=== 研报文件: ${file.name} ===\n\n${text}`
+        try {
+          const buffer = Buffer.from(await file.arrayBuffer())
+          console.log(`[上传] 解析研报: ${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB)`)
+          const text = await extractTextFromDocument(buffer, file.type)
+          if (text) {
+            researchText += `\n\n=== 研报文件: ${file.name} ===\n\n${text}`
+          }
+        } catch (extractError: any) {
+          console.error(`[上传] 提取研报 ${file.name} 失败:`, extractError.message)
         }
       }
       console.log(`[上传] 已提取研报文本 ${researchText.length} 字符`)
@@ -162,8 +193,23 @@ export async function POST(request: NextRequest) {
 
     // Step 1: Extract metadata using AI (from financial report)
     console.log('[上传] 正在使用AI提取元数据...')
-    const metadata = await extractMetadataFromReport(financialText)
-    console.log('[上传] 提取的元数据:', metadata)
+    let metadata
+    try {
+      metadata = await extractMetadataFromReport(financialText)
+      console.log('[上传] 提取的元数据:', metadata)
+    } catch (metadataError: any) {
+      console.error('[上传] 元数据提取失败:', metadataError.message)
+      if (requestId) {
+        activeRequests.set(requestId, {
+          timestamp: Date.now(),
+          analysisId: null,
+          status: 'error',
+        })
+      }
+      return NextResponse.json({ 
+        error: `元数据提取失败: ${metadataError.message}` 
+      }, { status: 500 })
+    }
 
     // Create processing entry so frontend can see progress
     const processingEntry = await analysisStore.add({
@@ -192,6 +238,7 @@ export async function POST(request: NextRequest) {
 
     // Step 2: Analyze the report with the selected category
     console.log(`[上传] 正在进行AI分析... 分类: ${selectedCategory || '自动检测'}`)
+    console.log(`[上传] 财报文本长度: ${financialText.length}, 研报文本长度: ${researchText.length}`)
     
     let analysis
     try {
@@ -215,7 +262,7 @@ export async function POST(request: NextRequest) {
         researchText || undefined
       )
     } catch (analysisError: any) {
-      console.error('[上传] AI分析失败:', analysisError)
+      console.error('[上传] AI分析失败:', analysisError.message)
       
       // Update record with error status
       await analysisStore.update(processingId, {
@@ -265,7 +312,7 @@ export async function POST(request: NextRequest) {
       analysis: storedAnalysis,
     })
   } catch (error: any) {
-    console.error('[上传] 错误:', error)
+    console.error('[上传] 未预期的错误:', error)
     
     // If there's a processing record, mark it as error
     if (processingId) {

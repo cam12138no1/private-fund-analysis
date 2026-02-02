@@ -418,9 +418,11 @@ export async function analyzeFinancialReport(
   
   const hasResearchReport = !!researchReportText && researchReportText.length > 100
   
-  // Truncate text to avoid token limits (max ~100k chars for financial, ~50k for research)
-  const MAX_FINANCIAL_TEXT = 100000
-  const MAX_RESEARCH_TEXT = 50000
+  // Truncate text to avoid token limits
+  // Gemini 2.5 Flash has ~1M token context but OpenRouter may have lower limits
+  // Keep it conservative: ~60k chars for financial (~15k tokens), ~30k for research (~7.5k tokens)
+  const MAX_FINANCIAL_TEXT = 60000
+  const MAX_RESEARCH_TEXT = 30000
   
   let truncatedReportText = reportText
   if (reportText.length > MAX_FINANCIAL_TEXT) {
