@@ -90,7 +90,7 @@ User Question: ${question}
 Please answer this question as thoroughly as possible based on public information.`
 
       const response = await openrouter.chat({
-        model: 'google/gemini-2.5-flash-preview',
+        model: 'google/gemini-3-pro-preview',
         messages: [
           {
             role: 'system',

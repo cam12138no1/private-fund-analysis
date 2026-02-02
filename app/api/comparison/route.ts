@@ -120,7 +120,7 @@ Note: No analyzed financial report data available for this company. Please compa
 
     // Call AI to generate comparison analysis
     const response = await openrouter.chat({
-      model: 'google/gemini-2.5-flash-preview',
+      model: 'google/gemini-3-pro-preview',
       messages: [
         {
           role: 'system',

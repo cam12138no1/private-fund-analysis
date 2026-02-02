@@ -212,7 +212,7 @@ export async function analyzeFinancialReport(
   const systemPrompt = companyInfo.prompt + JSON_OUTPUT_INSTRUCTION
   
   const response = await openrouter.chat({
-    model: 'google/gemini-2.5-flash-preview',
+    model: 'google/gemini-3-pro-preview',
     messages: [
       {
         role: 'system',
