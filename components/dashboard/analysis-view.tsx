@@ -15,7 +15,8 @@ import {
   Users,
   Zap,
   Calendar,
-  FileText
+  FileText,
+  Loader2
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -39,52 +40,77 @@ export default function AnalysisView({ analysis, onBack }: AnalysisViewProps) {
     
     try {
       // Dynamic import html2canvas and jspdf
-      const html2canvas = (await import('html2canvas')).default
-      const { jsPDF } = await import('jspdf')
+      const [html2canvasModule, jspdfModule] = await Promise.all([
+        import('html2canvas'),
+        import('jspdf')
+      ])
+      
+      const html2canvas = html2canvasModule.default
+      const { jsPDF } = jspdfModule
       
       const element = reportRef.current
       
+      // Clone the element to avoid modifying the original
+      const clone = element.cloneNode(true) as HTMLElement
+      clone.style.width = '800px'
+      clone.style.padding = '20px'
+      clone.style.backgroundColor = '#ffffff'
+      document.body.appendChild(clone)
+      
+      // Wait for fonts and images to load
+      await new Promise(resolve => setTimeout(resolve, 500))
+      
       // Create canvas with better settings
-      const canvas = await html2canvas(element, {
+      const canvas = await html2canvas(clone, {
         scale: 2,
         useCORS: true,
         logging: false,
         backgroundColor: '#ffffff',
-        allowTaint: true,
-        windowWidth: element.scrollWidth,
-        windowHeight: element.scrollHeight
+        allowTaint: false,
+        foreignObjectRendering: false,
+        removeContainer: true
       })
       
-      const imgData = canvas.toDataURL('image/png', 1.0)
+      // Remove the clone
+      document.body.removeChild(clone)
+      
+      const imgData = canvas.toDataURL('image/jpeg', 0.95)
       const pdf = new jsPDF({
         orientation: 'portrait',
         unit: 'mm',
         format: 'a4'
       })
       
-      const imgWidth = 210 // A4 width in mm
-      const pageHeight = 297 // A4 height in mm
+      const pdfWidth = pdf.internal.pageSize.getWidth()
+      const pdfHeight = pdf.internal.pageSize.getHeight()
+      const imgWidth = pdfWidth - 20 // 10mm margin on each side
       const imgHeight = (canvas.height * imgWidth) / canvas.width
+      
       let heightLeft = imgHeight
-      let position = 0
+      let position = 10 // Top margin
       
       // Add first page
-      pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight)
-      heightLeft -= pageHeight
+      pdf.addImage(imgData, 'JPEG', 10, position, imgWidth, imgHeight)
+      heightLeft -= (pdfHeight - 20)
       
       // Add additional pages if needed
       while (heightLeft > 0) {
-        position = heightLeft - imgHeight
+        position = heightLeft - imgHeight + 10
         pdf.addPage()
-        pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight)
-        heightLeft -= pageHeight
+        pdf.addImage(imgData, 'JPEG', 10, position, imgWidth, imgHeight)
+        heightLeft -= (pdfHeight - 20)
       }
       
-      const filename = `${analysis.company_symbol}_${analysis.fiscal_year}${analysis.fiscal_quarter ? `Q${analysis.fiscal_quarter}` : 'FY'}_分析报告.pdf`
+      const filename = `${analysis.company_symbol || 'Report'}_${analysis.fiscal_year || 'FY'}${analysis.fiscal_quarter ? `Q${analysis.fiscal_quarter}` : ''}_分析报告.pdf`
       pdf.save(filename)
     } catch (error) {
       console.error('PDF导出失败:', error)
-      alert('PDF导出失败，请重试')
+      // Fallback: try window.print()
+      try {
+        window.print()
+      } catch (printError) {
+        alert('PDF导出失败，请尝试使用浏览器的打印功能 (Ctrl+P / Cmd+P)')
+      }
     } finally {
       setIsExporting(false)
     }
@@ -107,7 +133,7 @@ export default function AnalysisView({ analysis, onBack }: AnalysisViewProps) {
   return (
     <div className="p-6 space-y-6 bg-gray-50 min-h-screen">
       {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 print:hidden">
         <div className="flex items-center gap-4">
           <Button variant="ghost" size="icon" onClick={onBack} className="hover:bg-white">
             <ArrowLeft className="h-5 w-5" />
@@ -138,7 +164,7 @@ export default function AnalysisView({ analysis, onBack }: AnalysisViewProps) {
         >
           {isExporting ? (
             <>
-              <Download className="h-4 w-4 mr-2 animate-bounce" />
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
               导出中...
             </>
           ) : (
@@ -151,9 +177,24 @@ export default function AnalysisView({ analysis, onBack }: AnalysisViewProps) {
       </div>
 
       {/* Report Content - wrapped in ref for PDF export */}
-      <div ref={reportRef} className="space-y-6">
+      <div ref={reportRef} className="space-y-6 print:space-y-4">
+        {/* Print Header - only visible when printing */}
+        <div className="hidden print:block mb-6">
+          <div className="flex items-center gap-4 border-b pb-4">
+            <div className="h-12 w-12 rounded-lg bg-blue-600 flex items-center justify-center text-white font-bold text-lg">
+              {analysis.company_symbol?.slice(0, 2) || '??'}
+            </div>
+            <div>
+              <h1 className="text-xl font-bold text-gray-900">{analysis.company_name}</h1>
+              <p className="text-sm text-gray-500">
+                {analysis.company_symbol} · {analysis.fiscal_quarter ? `Q${analysis.fiscal_quarter}` : 'FY'} {analysis.fiscal_year}
+              </p>
+            </div>
+          </div>
+        </div>
+
         {/* 一句话结论 */}
-        <Card className="border-0 shadow-sm bg-gradient-to-r from-blue-600 to-indigo-600 text-white overflow-hidden">
+        <Card className="border-0 shadow-sm bg-gradient-to-r from-blue-600 to-indigo-600 text-white overflow-hidden print:bg-blue-600 print:shadow-none">
           <CardContent className="p-6">
             <div className="flex items-start gap-4">
               <div className="h-10 w-10 rounded-lg bg-white/20 flex items-center justify-center flex-shrink-0">
@@ -171,10 +212,10 @@ export default function AnalysisView({ analysis, onBack }: AnalysisViewProps) {
 
         {/* 业绩与市场预期对比 */}
         {analysis.results_table && analysis.results_table.length > 0 && (
-          <Card className="border-0 shadow-sm">
+          <Card className="border-0 shadow-sm print:shadow-none print:border print:border-gray-200">
             <CardHeader className="pb-2">
               <div className="flex items-center gap-3">
-                <div className="h-10 w-10 rounded-lg bg-blue-100 flex items-center justify-center">
+                <div className="h-10 w-10 rounded-lg bg-blue-100 flex items-center justify-center print:bg-blue-50">
                   <DollarSign className="h-5 w-5 text-blue-600" />
                 </div>
                 <div>
@@ -229,7 +270,7 @@ export default function AnalysisView({ analysis, onBack }: AnalysisViewProps) {
 
         {/* 增长驱动拆解 */}
         {analysis.drivers && (
-          <Card className="border-0 shadow-sm">
+          <Card className="border-0 shadow-sm print:shadow-none print:border print:border-gray-200">
             <CardHeader className="pb-2">
               <div className="flex items-center gap-3">
                 <div className="h-10 w-10 rounded-lg bg-purple-100 flex items-center justify-center">
@@ -244,7 +285,7 @@ export default function AnalysisView({ analysis, onBack }: AnalysisViewProps) {
               </div>
             </CardHeader>
             <CardContent>
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 print:grid-cols-3">
                 {/* 需求/量 */}
                 <div className="p-4 bg-gradient-to-br from-green-50 to-emerald-50 rounded-xl border border-green-100">
                   <div className="flex items-center gap-2 mb-3">
@@ -311,7 +352,7 @@ export default function AnalysisView({ analysis, onBack }: AnalysisViewProps) {
 
         {/* 投入与ROI分析 */}
         {analysis.investment_roi && (
-          <Card className="border-0 shadow-sm">
+          <Card className="border-0 shadow-sm print:shadow-none print:border print:border-gray-200">
             <CardHeader className="pb-2">
               <div className="flex items-center gap-3">
                 <div className="h-10 w-10 rounded-lg bg-indigo-100 flex items-center justify-center">
@@ -321,7 +362,7 @@ export default function AnalysisView({ analysis, onBack }: AnalysisViewProps) {
               </div>
             </CardHeader>
             <CardContent>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4 print:grid-cols-2">
                 <div className="p-4 bg-gray-50 rounded-xl">
                   <p className="text-xs font-medium text-gray-500 mb-1">资本支出变化</p>
                   <p className="text-gray-900">{analysis.investment_roi.capex_change || '-'}</p>
@@ -359,9 +400,9 @@ export default function AnalysisView({ analysis, onBack }: AnalysisViewProps) {
 
         {/* 可持续性与风险 */}
         {analysis.sustainability_risks && (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 print:grid-cols-3">
             {/* 可持续驱动 */}
-            <Card className="border-0 shadow-sm">
+            <Card className="border-0 shadow-sm print:shadow-none print:border print:border-gray-200">
               <CardHeader className="pb-2">
                 <CardTitle className="text-base flex items-center gap-2">
                   <TrendingUp className="h-4 w-4 text-green-600" />
@@ -381,7 +422,7 @@ export default function AnalysisView({ analysis, onBack }: AnalysisViewProps) {
             </Card>
 
             {/* 主要风险 */}
-            <Card className="border-0 shadow-sm">
+            <Card className="border-0 shadow-sm print:shadow-none print:border print:border-gray-200">
               <CardHeader className="pb-2">
                 <CardTitle className="text-base flex items-center gap-2">
                   <AlertTriangle className="h-4 w-4 text-red-600" />
@@ -401,7 +442,7 @@ export default function AnalysisView({ analysis, onBack }: AnalysisViewProps) {
             </Card>
 
             {/* 未来检查点 */}
-            <Card className="border-0 shadow-sm">
+            <Card className="border-0 shadow-sm print:shadow-none print:border print:border-gray-200">
               <CardHeader className="pb-2">
                 <CardTitle className="text-base flex items-center gap-2">
                   <Target className="h-4 w-4 text-blue-600" />
@@ -426,7 +467,7 @@ export default function AnalysisView({ analysis, onBack }: AnalysisViewProps) {
 
         {/* 模型影响与估值 */}
         {analysis.model_impact && (
-          <Card className="border-0 shadow-sm">
+          <Card className="border-0 shadow-sm print:shadow-none print:border print:border-gray-200">
             <CardHeader className="pb-2">
               <div className="flex items-center gap-3">
                 <div className="h-10 w-10 rounded-lg bg-purple-100 flex items-center justify-center">
@@ -436,7 +477,7 @@ export default function AnalysisView({ analysis, onBack }: AnalysisViewProps) {
               </div>
             </CardHeader>
             <CardContent>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 print:grid-cols-2">
                 <div className="p-4 bg-gray-50 rounded-xl">
                   <p className="text-xs font-medium text-gray-500 mb-1">收入假设调整</p>
                   <p className="text-gray-900">{analysis.model_impact.revenue_adjustment || '-'}</p>
@@ -445,11 +486,11 @@ export default function AnalysisView({ analysis, onBack }: AnalysisViewProps) {
                   <p className="text-xs font-medium text-gray-500 mb-1">资本支出假设调整</p>
                   <p className="text-gray-900">{analysis.model_impact.capex_adjustment || '-'}</p>
                 </div>
-                <div className="p-4 bg-gray-50 rounded-xl md:col-span-2">
+                <div className="p-4 bg-gray-50 rounded-xl md:col-span-2 print:col-span-2">
                   <p className="text-xs font-medium text-gray-500 mb-1">估值变化</p>
                   <p className="text-gray-900">{analysis.model_impact.valuation_change || '-'}</p>
                 </div>
-                <div className="p-4 bg-purple-50 rounded-xl border border-purple-100 md:col-span-2">
+                <div className="p-4 bg-purple-50 rounded-xl border border-purple-100 md:col-span-2 print:col-span-2">
                   <p className="text-xs font-medium text-purple-700 mb-1">逻辑链</p>
                   <p className="text-purple-900">{analysis.model_impact.logic_chain || '-'}</p>
                 </div>
@@ -460,7 +501,7 @@ export default function AnalysisView({ analysis, onBack }: AnalysisViewProps) {
 
         {/* 投委会结论 */}
         {analysis.final_judgment && (
-          <Card className="border-0 shadow-sm bg-gradient-to-br from-slate-800 to-slate-900 text-white overflow-hidden">
+          <Card className="border-0 shadow-sm bg-gradient-to-br from-slate-800 to-slate-900 text-white overflow-hidden print:bg-slate-800 print:shadow-none">
             <CardContent className="p-6">
               <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
                 <div className="h-8 w-8 rounded-lg bg-white/10 flex items-center justify-center">
@@ -469,7 +510,7 @@ export default function AnalysisView({ analysis, onBack }: AnalysisViewProps) {
                 6) 投委会结论
               </h3>
               
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4 print:grid-cols-2">
                 <div className="p-4 bg-white/10 rounded-xl">
                   <p className="text-xs font-medium text-slate-300 mb-2">更有信心的点</p>
                   <p className="text-white">{analysis.final_judgment.confidence || '-'}</p>
@@ -498,6 +539,56 @@ export default function AnalysisView({ analysis, onBack }: AnalysisViewProps) {
                   <p className="text-white font-medium">{analysis.final_judgment.recommendation || '-'}</p>
                 </div>
               </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* 研报对比分析 (如果有) */}
+        {analysis.research_comparison && (
+          <Card className="border-0 shadow-sm bg-gradient-to-br from-amber-50 to-orange-50 print:shadow-none print:border print:border-amber-200">
+            <CardHeader className="pb-2">
+              <div className="flex items-center gap-3">
+                <div className="h-10 w-10 rounded-lg bg-amber-100 flex items-center justify-center">
+                  <FileText className="h-5 w-5 text-amber-600" />
+                </div>
+                <div>
+                  <CardTitle className="text-lg text-amber-900">研报对比分析</CardTitle>
+                  {analysis.research_comparison.consensus_source && (
+                    <p className="text-sm text-amber-700 mt-1">
+                      预期来源: {analysis.research_comparison.consensus_source}
+                    </p>
+                  )}
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {analysis.research_comparison.beat_miss_summary && (
+                <div className="p-4 bg-white/70 rounded-xl mb-4">
+                  <p className="text-xs font-medium text-amber-700 mb-1">Beat/Miss 总结</p>
+                  <p className="text-amber-900 font-medium">{analysis.research_comparison.beat_miss_summary}</p>
+                </div>
+              )}
+              
+              {analysis.research_comparison.key_differences && analysis.research_comparison.key_differences.length > 0 && (
+                <div className="p-4 bg-white/70 rounded-xl mb-4">
+                  <p className="text-xs font-medium text-amber-700 mb-2">关键差异点</p>
+                  <ul className="space-y-1">
+                    {analysis.research_comparison.key_differences.map((diff: string, idx: number) => (
+                      <li key={idx} className="text-sm text-amber-800 flex items-start gap-2">
+                        <span className="w-1.5 h-1.5 bg-amber-500 rounded-full mt-2 flex-shrink-0" />
+                        {diff}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              
+              {analysis.research_comparison.analyst_blind_spots && (
+                <div className="p-4 bg-amber-100/50 rounded-xl border border-amber-200">
+                  <p className="text-xs font-medium text-amber-700 mb-1">分析师盲点</p>
+                  <p className="text-amber-900">{analysis.research_comparison.analyst_blind_spots}</p>
+                </div>
+              )}
             </CardContent>
           </Card>
         )}
