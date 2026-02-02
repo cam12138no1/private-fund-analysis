@@ -16,7 +16,10 @@ export async function GET(request: NextRequest) {
     // Use in-memory store for demo mode
     const analyses = analysisStore.getAll().slice(0, limit)
 
-    return NextResponse.json({ analyses })
+    return NextResponse.json({ 
+      analyses,
+      recentAnalyses: analyses,  // 兼容汇总表页面
+    })
   } catch (error: any) {
     console.error('Get dashboard error:', error)
     return NextResponse.json(

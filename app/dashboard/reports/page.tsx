@@ -20,11 +20,17 @@ interface Analysis {
   processed: boolean
   one_line_conclusion: string
   results_vs_expectations: any
-  key_drivers: any
+  results_table?: any[]
+  drivers?: any
   investment_roi: any
   sustainability_risks: any
   model_impact: any
-  final_judgment: string
+  final_judgment: {
+    confidence?: string
+    concerns?: string
+    net_impact?: string
+    recommendation?: string
+  } | string  // 兼容旧数据格式
 }
 
 export default function ReportsPage() {
@@ -74,7 +80,9 @@ export default function ReportsPage() {
           a.fiscal_quarter || '-',
           a.one_line_conclusion,
           a.sustainability_risks?.main_risks?.join('; ') || '-',
-          a.final_judgment?.slice(0, 100) + '...',
+          typeof a.final_judgment === 'string' 
+            ? a.final_judgment.slice(0, 100) + '...'
+            : a.final_judgment?.recommendation || '-',
         ])
       ]
       const summarySheet = XLSX.utils.aoa_to_sheet(summaryData)
@@ -253,7 +261,36 @@ export default function ReportsPage() {
             <CardTitle>投委会结论</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-lg leading-relaxed">{selectedAnalysis.final_judgment}</p>
+            {typeof selectedAnalysis.final_judgment === 'string' ? (
+              <p className="text-lg leading-relaxed">{selectedAnalysis.final_judgment}</p>
+            ) : (
+              <div className="space-y-4">
+                {selectedAnalysis.final_judgment?.confidence && (
+                  <div>
+                    <p className="text-sm font-medium text-gray-500">更有信心</p>
+                    <p className="text-gray-900">{selectedAnalysis.final_judgment.confidence}</p>
+                  </div>
+                )}
+                {selectedAnalysis.final_judgment?.concerns && (
+                  <div>
+                    <p className="text-sm font-medium text-gray-500">更担心</p>
+                    <p className="text-gray-900">{selectedAnalysis.final_judgment.concerns}</p>
+                  </div>
+                )}
+                {selectedAnalysis.final_judgment?.net_impact && (
+                  <div>
+                    <p className="text-sm font-medium text-gray-500">净影响</p>
+                    <p className="text-lg font-semibold text-blue-600">{selectedAnalysis.final_judgment.net_impact}</p>
+                  </div>
+                )}
+                {selectedAnalysis.final_judgment?.recommendation && (
+                  <div>
+                    <p className="text-sm font-medium text-gray-500">建议</p>
+                    <p className="text-gray-900">{selectedAnalysis.final_judgment.recommendation}</p>
+                  </div>
+                )}
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>
