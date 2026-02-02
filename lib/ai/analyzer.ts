@@ -1,5 +1,5 @@
 import { openrouter } from '../openrouter'
-import { getCompanyCategory, AI_APPLICATION_PROMPT, AI_SUPPLY_CHAIN_PROMPT, COMPANY_CATEGORIES } from './prompts'
+import { getCompanyCategory, COMPANY_CATEGORIES } from './prompts'
 
 export interface ReportMetadata {
   company: string
@@ -23,12 +23,13 @@ export interface ResultsTableRow {
   consensus: string        // 市场预期
   delta: string            // 差异
   assessment: string       // 评估 (Beat/Miss/Inline)
+  importance?: string      // 重要性说明
 }
 
 // Driver detail structure
 export interface DriverDetail {
-  category: string         // A/B/C 分类
   title: string            // 标题
+  metrics?: string         // 相关指标
   change: string           // 变化描述
   magnitude: string        // 幅度
   reason: string           // 原因分析
@@ -42,7 +43,7 @@ export interface AnalysisResult {
   // 1) 结果层 - 表格形式
   results_summary: string  // 业绩概要
   results_table: ResultsTableRow[]
-  results_explanation: string  // 关键解释
+  results_explanation: string  // 关键解释（指引 vs 预期 + 管理层框架）
   
   // 2) 驱动层
   drivers_summary: string  // 驱动概要
@@ -70,9 +71,8 @@ export interface AnalysisResult {
   
   // 5) 模型影响
   model_impact: {
-    revenue_adjustment: string   // 收入假设调整
-    capex_adjustment: string     // CapEx假设调整
-    valuation_change: string     // 估值变化
+    upgrade_factors: string[]    // 上调因素
+    downgrade_factors: string[]  // 下调因素
     logic_chain: string          // 逻辑链
   }
   
@@ -80,9 +80,14 @@ export interface AnalysisResult {
   final_judgment: {
     confidence: string          // 更有信心的点
     concerns: string            // 更担心的点
-    net_impact: string          // 净影响 (更强/更弱/不变)
+    watch_list: string          // 接下来要盯什么
+    net_impact: string          // 净影响 (Strong Beat/Moderate Beat/Inline/Moderate Miss/Strong Miss)
+    long_term_narrative: string // 对长期叙事的影响
     recommendation: string      // 建议
   }
+  
+  // 投委会总结段落
+  investment_committee_summary: string
   
   // 7) 研报对比分析 (可选，仅当有研报时)
   research_comparison?: {
@@ -101,184 +106,245 @@ export interface AnalysisResult {
   }
 }
 
-// JSON输出格式系统提示 - 中文版（无研报）
+// 投委会级别分析系统提示词
+const INVESTMENT_COMMITTEE_SYSTEM_PROMPT = `你是一名顶级美股/科技股研究分析师（sell-side 写作风格），要产出一份可给投委会/董事会阅读的财报分析。
+
+你的目标不是复述财报，而是回答：
+"本次财报是否改变了我们对未来 2–3 年现金流与竞争力的判断？"
+
+【强制写作风格约束】
+1. 必须 vs 预期（没有预期就说明并用"隐含预期/历史区间"替代）
+2. 必须把 AI/技术从"故事"落到 指标→机制→财务变量
+3. 必须识别并剥离 一次性因素（罚款、诉讼、重组、资产减值等）
+4. 不允许空泛形容词（"强劲""亮眼"）不带指标
+5. 所有结论必须有数据支撑，格式为：指标 + 方向 + 幅度 + 原因`
+
+// AI应用公司专用提示
+const AI_APPLICATION_CONTEXT = `【公司类型：AI应用公司】
+重点关注维度：
+- 用户增长与活跃度（DAU/MAU/DAP）
+- 变现效率（ARPU/广告价格/转化率）
+- AI对产品的赋能效果（推荐系统/内容生成/广告定向）
+- 内容生态与用户时长
+- 监管风险（隐私/反垄断/内容审核）`
+
+// AI供应链公司专用提示
+const AI_SUPPLY_CHAIN_CONTEXT = `【公司类型：AI供应链公司】
+重点关注维度：
+- 算力需求与供给（GPU出货/云订单/数据中心扩张）
+- 产品周期与ASP（新品发布/定价权/库存周期）
+- 客户集中度与订单可见性
+- 供应链瓶颈（CoWoS/HBM/先进封装）
+- 竞争格局变化（AMD/Intel/自研芯片）`
+
+// JSON输出格式 - 无研报版本
 const JSON_OUTPUT_INSTRUCTION = `
 
 请严格按照以下JSON格式输出分析结果，所有内容必须使用中文：
 
 {
-  "one_line_conclusion": "一句话结论：Beat/Miss + 最关键驱动 + 最大风险",
+  "one_line_conclusion": "【一句话结论】格式：核心收入/指引{超预期/符合/不及预期}，增长由{驱动A}+{驱动B}带动；但{风险点}可能在未来{时间窗口}压制利润/FCF。",
   
-  "results_summary": "结果层概要",
+  "results_summary": "差异来源拆解：需求端/供给成本端/非经常性因素各贡献多少",
   
   "results_table": [
-    {"metric": "营收 (Revenue)", "actual": "$XXB", "consensus": "~$XXB", "delta": "+X%", "assessment": "超预期/不及预期/符合预期 (原因)"},
-    {"metric": "每股收益 (EPS)", "actual": "$X.XX", "consensus": "~$X.XX", "delta": "+X%", "assessment": "超预期/不及预期/符合预期"},
-    {"metric": "营业利润 (Operating Income)", "actual": "$XXB", "consensus": "~$XXB", "delta": "+X%", "assessment": "超预期/不及预期/符合预期"},
-    {"metric": "毛利率 (Gross Margin)", "actual": "XX%", "consensus": "~XX%", "delta": "+Xbps", "assessment": "改善/恶化"},
-    {"metric": "营业利润率 (Operating Margin)", "actual": "XX%", "consensus": "~XX%", "delta": "+Xbps", "assessment": "改善/恶化"},
-    {"metric": "指引 (下季度/全年)", "actual": "$XX-XXB", "consensus": "~$XXB", "delta": "+X%", "assessment": "大幅超预期/不及预期"}
+    {"metric": "Revenue", "actual": "$XX.Xbn", "consensus": "~$XX.Xbn (来源)", "delta": "+X.X%", "assessment": "Beat/Miss/Inline", "importance": "重要性：确认XX并非短期脉冲"},
+    {"metric": "Operating Income", "actual": "$XX.Xbn", "consensus": "~$XX.Xbn", "delta": "+X.X%", "assessment": "Beat/Miss/Inline", "importance": "主因：XX"},
+    {"metric": "Operating Margin", "actual": "XX.X%", "consensus": "~XX.X%", "delta": "+/-XXbps", "assessment": "扩张/收窄"},
+    {"metric": "EPS", "actual": "$X.XX", "consensus": "~$X.XX", "delta": "+X.X%", "assessment": "Beat/Miss/Inline"},
+    {"metric": "下季指引 Revenue", "actual": "$XX-XXbn", "consensus": "~$XXbn (隐含)", "delta": "+X%", "assessment": "超/符合/低于预期"},
+    {"metric": "FY CapEx 指引", "actual": "$XX-XXbn", "consensus": "~$XXbn", "delta": "+XX%", "assessment": "大幅上调/符合"}
   ],
   
-  "results_explanation": "关键解释：营收超预期主要由...驱动；差异主要来自...",
+  "results_explanation": "指引 vs 市场隐含预期的关键差异。管理层框架：如'OI绝对值增长'承诺但不设利润率下限。结论：收入与增长节奏好于预期，但XX被主动牺牲以换取XX。",
   
-  "drivers_summary": "驱动层概要",
+  "drivers_summary": "三大驱动的综合判断",
   
   "drivers": {
     "demand": {
-      "category": "A",
-      "title": "需求/量",
-      "change": "具体变化描述（指标 + 方向 + 幅度）",
-      "magnitude": "幅度（如 +X% YoY）",
-      "reason": "原因分析（产品/算法/渠道/供给/组织）"
+      "title": "A. 需求/量",
+      "metrics": "用户/使用量/订单量/出货量/广告展示等（选最相关2-3个）",
+      "change": "发生了什么变化：如'广告展示量 +18% YoY，DAP +7% YoY'",
+      "magnitude": "+XX% YoY",
+      "reason": "为什么：如'推荐系统架构简化 → 可扩展更长行为序列；内容新鲜度权重提升'"
     },
     "monetization": {
-      "category": "B",
-      "title": "变现/单价",
-      "change": "具体变化描述",
-      "magnitude": "幅度",
-      "reason": "原因分析"
+      "title": "B. 变现/单价",
+      "metrics": "ARPU/价格/转化率/Take rate/毛利率/广告价格等",
+      "change": "发生了什么变化：如'平均广告价格 +6% YoY，转化率 +3.5%'",
+      "magnitude": "+XX%",
+      "reason": "为什么：如'GEM基础模型扩展至Reels；增量归因模型 → 转化+24%'"
     },
     "efficiency": {
-      "category": "C",
-      "title": "内部效率",
-      "change": "具体变化描述",
-      "magnitude": "幅度",
-      "reason": "原因分析"
+      "title": "C. 内部效率",
+      "metrics": "人效/算力效率/履约成本/研发效率/单位成本趋势",
+      "change": "发生了什么变化：如'工程师人效 +30% YoY；算力效率 近3x'",
+      "magnitude": "+XX%",
+      "reason": "为什么：如'Agentic coding工具放量；模型整合减少重复算力'"
     }
   },
   
   "investment_roi": {
-    "capex_change": "资本支出变化描述",
-    "opex_change": "运营支出变化描述",
-    "investment_direction": "投入方向：算力/人才/渠道/供应链/并购",
-    "roi_evidence": ["ROI证据1", "ROI证据2", "ROI证据3"],
-    "management_commitment": "管理层底线承诺"
+    "capex_change": "本期CapEx变化及指引：如'FY25 $72bn → FY26指引 $115-135bn (+60%+)'",
+    "opex_change": "Opex增长主因拆解：如'基础设施（云+折旧）；AI技术人才（薪酬增速>人头增速）'",
+    "investment_direction": "投入指向：如'超大规模训练算力（自建+公有云）；自研芯片MTIA；Meta Superintelligence Labs'",
+    "roi_evidence": [
+      "已体现的ROI证据1：如'转化率与广告点击提升（直接反映在价格与收入）'",
+      "已体现的ROI证据2：如'视频生成工具收入 run-rate $10bn'",
+      "已体现的ROI证据3：如'内部生产率提升 → 抑制长期人头膨胀'"
+    ],
+    "management_commitment": "管理层底线框架：如'仅承诺OI绝对值增长；未承诺FCF正增长/利润率区间 → 现金流可见性缺口仍在'"
   },
   
   "sustainability_risks": {
-    "sustainable_drivers": ["可持续驱动1", "可持续驱动2", "可持续驱动3"],
-    "main_risks": ["主要风险1：描述", "主要风险2：描述", "主要风险3：描述"],
-    "checkpoints": ["检查点1", "检查点2", "检查点3"]
+    "sustainable_drivers": [
+      "可持续驱动1：如'推荐系统×LLM融合仍处早期'",
+      "可持续驱动2：如'Reels/Threads/WhatsApp广告尚未完全变现'",
+      "可持续驱动3：如'AI工具对内降本、对外提效的复利效应'"
+    ],
+    "main_risks": [
+      "风险1：如'资本强度风险：CapEx高位若常态化，FCF中枢下移'",
+      "风险2：如'监管风险：EU Less Personalized Ads影响在2H26放大'",
+      "风险3：如'边际ROI风险：算力扩张是否仍具高回报尚未验证'"
+    ],
+    "checkpoints": [
+      "检查点1：如'1H26：广告转化率与价格是否继续双升'",
+      "检查点2：如'2H26：CapEx实际落点 vs 指引上限'",
+      "检查点3：如'FY26：FCF是否仍为正'"
+    ]
   },
   
   "model_impact": {
-    "revenue_adjustment": "收入假设调整",
-    "capex_adjustment": "资本支出假设调整",
-    "valuation_change": "估值变化",
-    "logic_chain": "逻辑链：财报信号 → 假设变化 → 估值变化"
+    "upgrade_factors": [
+      "上调：如'中期收入CAGR（广告转化与AI工具）'",
+      "上调：如'长期竞争壁垒（数据×模型×分发）'"
+    ],
+    "downgrade_factors": [
+      "下调：如'2026-27 FCF'",
+      "下调：如'近端利润率'"
+    ],
+    "logic_chain": "逻辑链：如'财报显示ROI → 上调收入 → 但CapEx前置 → 估值更多依赖终值假设而非近端现金流'"
   },
   
   "final_judgment": {
-    "confidence": "我们更有信心的点...",
-    "concerns": "我们更担心的点...",
-    "net_impact": "更强/更弱/不变",
-    "recommendation": "投资建议"
-  }
+    "confidence": "我们更有信心的点：如'核心广告业务竞争力与AI驱动增长机制，尤其是转化效率与内容分发层面的系统性优势'",
+    "concerns": "我们更担心的点：如'公司主动选择进入高资本强度、低短期现金回报的阶段，未来2-3年FCF确定性下降'",
+    "watch_list": "接下来要盯：如'算力与模型规模扩张的边际ROI能否持续高于资本成本'",
+    "net_impact": "Strong Beat / Moderate Beat / Inline / Moderate Miss / Strong Miss",
+    "long_term_narrative": "对长期叙事的净影响：更强/更弱/不变，以及原因",
+    "recommendation": "投资建议：如'超配，但需承受短期现金流波动；更像一只长期看多、短期需承受波动的结构性资产'"
+  },
+  
+  "investment_committee_summary": "【投委会结论】4-6句话收束。示例：本次财报强化了我们对XX核心业务竞争力与AI驱动增长机制的信心，尤其是在XX层面的系统性优势。但同时，公司主动选择进入一个高资本强度、低短期现金回报的阶段，未来2-3年的自由现金流确定性下降。投资判断的关键不在于'AI叙事是否成立'，而在于XX的边际ROI能否持续高于资本成本。在此之前，XX更像一只长期看多、短期需承受现金流波动的结构性资产。"
 }
 
-重要要求：
-1. results_table必须包含至少5-7行关键指标
-2. 每个字段都必须填写完整内容，不能留空
-3. 所有数字必须是具体的，不能用占位符
-4. 必须严格遵循JSON格式
-5. 所有分析内容必须使用中文输出`
+【关键规则】
+1. results_table只保留"能改变判断"的数字（5-7行），不要堆砌所有指标
+2. 每个驱动必须回答：发生了什么变化（指标+方向+幅度）+ 为什么
+3. ROI证据必须量化，用已经体现的结果证明
+4. 风险必须给出时间窗口
+5. 检查点必须是可验证/可证伪的具体指标或事件
+6. 最终判断必须明确：更强/更弱/不变
+7. investment_committee_summary必须是完整的4-6句话段落，可直接用于投委会报告`
 
-// JSON输出格式系统提示 - 中文版（有研报对比）
+// JSON输出格式 - 有研报对比版本
 const JSON_OUTPUT_INSTRUCTION_WITH_RESEARCH = `
 
 请严格按照以下JSON格式输出分析结果，所有内容必须使用中文。
 重要：你需要将财报实际数据与研报中的市场预期进行对比分析。
 
 {
-  "one_line_conclusion": "一句话结论：Beat/Miss + 最关键驱动 + 最大风险 + 与研报预期的核心差异",
+  "one_line_conclusion": "【一句话结论】格式：核心收入/指引{超预期/符合/不及预期}（vs {研报机构}预期），增长由{驱动A}+{驱动B}带动；但{风险点}可能在未来{时间窗口}压制利润/FCF。",
   
-  "results_summary": "结果层概要（重点说明财报实际 vs 研报预期）",
+  "results_summary": "差异来源拆解：需求端/供给成本端/非经常性因素各贡献多少（对比研报预期）",
   
   "results_table": [
-    {"metric": "营收 (Revenue)", "actual": "$XXB (财报实际)", "consensus": "~$XXB (研报预期)", "delta": "+X%", "assessment": "超预期/不及预期/符合预期 (与研报预期对比原因)"},
-    {"metric": "每股收益 (EPS)", "actual": "$X.XX", "consensus": "~$X.XX (研报预期)", "delta": "+X%", "assessment": "超预期/不及预期/符合预期"},
-    {"metric": "营业利润 (Operating Income)", "actual": "$XXB", "consensus": "~$XXB (研报预期)", "delta": "+X%", "assessment": "超预期/不及预期/符合预期"},
-    {"metric": "毛利率 (Gross Margin)", "actual": "XX%", "consensus": "~XX% (研报预期)", "delta": "+Xbps", "assessment": "改善/恶化"},
-    {"metric": "营业利润率 (Operating Margin)", "actual": "XX%", "consensus": "~XX% (研报预期)", "delta": "+Xbps", "assessment": "改善/恶化"},
-    {"metric": "指引 (下季度/全年)", "actual": "$XX-XXB", "consensus": "~$XXB (研报预期)", "delta": "+X%", "assessment": "大幅超预期/不及预期"}
+    {"metric": "Revenue", "actual": "$XX.Xbn", "consensus": "$XX.Xbn (Morgan Stanley预期)", "delta": "+X.X%", "assessment": "Beat", "importance": "确认XX并非短期脉冲"},
+    {"metric": "Operating Income", "actual": "$XX.Xbn", "consensus": "$XX.Xbn (研报预期)", "delta": "-X.X%", "assessment": "Miss", "importance": "低于预期，主因Opex前置"},
+    {"metric": "Operating Margin", "actual": "XX.X%", "consensus": "XX.X% (研报预期)", "delta": "-XXbps", "assessment": "收窄"},
+    {"metric": "EPS", "actual": "$X.XX", "consensus": "$X.XX (研报预期)", "delta": "+X.X%", "assessment": "Inline"},
+    {"metric": "下季指引 Revenue", "actual": "$XX-XXbn", "consensus": "~$XXbn (研报隐含)", "delta": "+X%", "assessment": "超预期"},
+    {"metric": "FY CapEx 指引", "actual": "$XX-XXbn", "consensus": "$XXbn (研报预期)", "delta": "+XX%", "assessment": "大幅上调"}
   ],
   
-  "results_explanation": "关键解释：营收超预期主要由...驱动；与研报预期的差异主要来自...",
+  "results_explanation": "指引 vs 研报预期的关键差异。管理层框架。结论：收入与增长节奏好于研报预期，但XX被主动牺牲。",
   
-  "drivers_summary": "驱动层概要",
+  "drivers_summary": "三大驱动的综合判断",
   
   "drivers": {
     "demand": {
-      "category": "A",
-      "title": "需求/量",
-      "change": "具体变化描述（指标 + 方向 + 幅度）",
-      "magnitude": "幅度（如 +X% YoY）",
-      "reason": "原因分析（产品/算法/渠道/供给/组织）"
+      "title": "A. 需求/量",
+      "metrics": "用户/使用量/订单量/出货量/广告展示等",
+      "change": "发生了什么变化",
+      "magnitude": "+XX% YoY",
+      "reason": "为什么"
     },
     "monetization": {
-      "category": "B",
-      "title": "变现/单价",
-      "change": "具体变化描述",
-      "magnitude": "幅度",
-      "reason": "原因分析"
+      "title": "B. 变现/单价",
+      "metrics": "ARPU/价格/转化率/Take rate/毛利率/广告价格等",
+      "change": "发生了什么变化",
+      "magnitude": "+XX%",
+      "reason": "为什么"
     },
     "efficiency": {
-      "category": "C",
-      "title": "内部效率",
-      "change": "具体变化描述",
-      "magnitude": "幅度",
-      "reason": "原因分析"
+      "title": "C. 内部效率",
+      "metrics": "人效/算力效率/履约成本/研发效率/单位成本趋势",
+      "change": "发生了什么变化",
+      "magnitude": "+XX%",
+      "reason": "为什么"
     }
   },
   
   "investment_roi": {
-    "capex_change": "资本支出变化描述",
-    "opex_change": "运营支出变化描述",
-    "investment_direction": "投入方向：算力/人才/渠道/供应链/并购",
+    "capex_change": "本期CapEx变化及指引",
+    "opex_change": "Opex增长主因拆解",
+    "investment_direction": "投入指向",
     "roi_evidence": ["ROI证据1", "ROI证据2", "ROI证据3"],
-    "management_commitment": "管理层底线承诺"
+    "management_commitment": "管理层底线框架"
   },
   
   "sustainability_risks": {
     "sustainable_drivers": ["可持续驱动1", "可持续驱动2", "可持续驱动3"],
-    "main_risks": ["主要风险1：描述", "主要风险2：描述", "主要风险3：描述"],
-    "checkpoints": ["检查点1", "检查点2", "检查点3"]
+    "main_risks": ["风险1：类型+时间窗口", "风险2", "风险3"],
+    "checkpoints": ["检查点1：时间+指标", "检查点2", "检查点3"]
   },
   
   "model_impact": {
-    "revenue_adjustment": "收入假设调整",
-    "capex_adjustment": "资本支出假设调整",
-    "valuation_change": "估值变化",
-    "logic_chain": "逻辑链：财报信号 → 假设变化 → 估值变化"
+    "upgrade_factors": ["上调：原因1", "上调：原因2"],
+    "downgrade_factors": ["下调：原因1", "下调：原因2"],
+    "logic_chain": "逻辑链：财报信号 → 假设变化 → 估值影响"
   },
   
   "final_judgment": {
-    "confidence": "我们更有信心的点...",
-    "concerns": "我们更担心的点...",
-    "net_impact": "更强/更弱/不变",
+    "confidence": "我们更有信心的点",
+    "concerns": "我们更担心的点",
+    "watch_list": "接下来要盯什么",
+    "net_impact": "Strong Beat / Moderate Beat / Inline / Moderate Miss / Strong Miss",
+    "long_term_narrative": "对长期叙事的净影响：更强/更弱/不变",
     "recommendation": "投资建议"
   },
   
+  "investment_committee_summary": "【投委会结论】4-6句话收束",
+  
   "research_comparison": {
-    "consensus_source": "研报来源机构（如：高盛、摩根士丹利、中金等）",
+    "consensus_source": "研报来源机构（如：Morgan Stanley、Goldman Sachs等）",
     "key_differences": [
       "差异点1：研报预期XX，实际YY，差异原因...",
       "差异点2：研报预期XX，实际YY，差异原因...",
       "差异点3：研报预期XX，实际YY，差异原因..."
     ],
-    "beat_miss_summary": "总体Beat/Miss情况：X项超预期，Y项不及预期，Z项符合预期",
-    "analyst_blind_spots": "分析师可能忽略的点：..."
+    "beat_miss_summary": "总体：X项超预期，Y项不及预期，Z项符合预期",
+    "analyst_blind_spots": "分析师可能忽略的点"
   }
 }
 
-重要要求：
-1. results_table必须包含至少5-7行关键指标，consensus列必须使用研报中的预期数据
-2. 每个字段都必须填写完整内容，不能留空
-3. 所有数字必须是具体的，不能用占位符
-4. 必须严格遵循JSON格式
-5. 所有分析内容必须使用中文输出
-6. research_comparison必须详细对比财报实际与研报预期的差异`
+【关键规则】
+1. results_table的consensus列必须使用研报中的具体预期数据，标注来源
+2. 每个驱动必须回答：发生了什么变化 + 为什么
+3. ROI证据必须量化
+4. 风险必须给出时间窗口
+5. research_comparison必须详细对比财报实际与研报预期的差异
+6. investment_committee_summary必须是完整的4-6句话段落`
 
 export async function analyzeFinancialReport(
   reportText: string,
@@ -316,15 +382,20 @@ export async function analyzeFinancialReport(
   const hasResearchReport = !!researchReportText && researchReportText.length > 100
   console.log(`正在分析 ${metadata.company} (${metadata.symbol})，分类为 ${companyInfo.categoryName}，${hasResearchReport ? '包含研报对比' : '无研报'}`)
   
+  // Build category-specific context
+  const categoryContext = companyInfo.category === 'AI_APPLICATION' 
+    ? AI_APPLICATION_CONTEXT 
+    : AI_SUPPLY_CHAIN_CONTEXT
+  
   // Build complete system prompt based on whether we have research report
   const jsonInstruction = hasResearchReport ? JSON_OUTPUT_INSTRUCTION_WITH_RESEARCH : JSON_OUTPUT_INSTRUCTION
-  const systemPrompt = companyInfo.prompt + jsonInstruction
+  const systemPrompt = INVESTMENT_COMMITTEE_SYSTEM_PROMPT + '\n\n' + categoryContext + jsonInstruction
   
   // Build user message with optional research report
   let userMessage = `公司：${metadata.company} (${metadata.symbol})
 报告期：${metadata.period}
 公司分类：${companyInfo.categoryName}
-市场预期：${JSON.stringify(metadata.consensus || {}, null, 2)}
+市场预期基准：${JSON.stringify(metadata.consensus || {}, null, 2)}
 
 === 财报内容 ===
 ${reportText}`
@@ -335,14 +406,18 @@ ${reportText}`
 === 研报内容（市场预期来源）===
 ${researchReportText}
 
-请重点对比财报实际数据与研报中的市场预期，分析Beat/Miss情况及原因。`
+请重点对比财报实际数据与研报中的市场预期，分析Beat/Miss情况及原因。在results_table的consensus列中标注研报来源。`
   }
 
   userMessage += `
 
-请严格按JSON格式输出完整分析，确保每个字段都有详细内容。results_table必须包含5-7行关键财务指标对比。所有内容使用中文。`
+请严格按JSON格式输出完整分析。
+- results_table必须包含5-7行关键财务指标对比
+- 每个字段都必须有详细内容
+- investment_committee_summary必须是完整的4-6句话段落
+- 所有内容使用中文`
 
-  // Build JSON schema - add research_comparison if we have research report
+  // Build JSON schema
   const baseSchema = {
     type: 'object' as const,
     properties: {
@@ -358,6 +433,7 @@ ${researchReportText}
             consensus: { type: 'string' as const },
             delta: { type: 'string' as const },
             assessment: { type: 'string' as const },
+            importance: { type: 'string' as const },
           },
           required: ['metric', 'actual', 'consensus', 'delta', 'assessment'] as const,
         },
@@ -370,35 +446,35 @@ ${researchReportText}
           demand: {
             type: 'object' as const,
             properties: {
-              category: { type: 'string' as const },
               title: { type: 'string' as const },
+              metrics: { type: 'string' as const },
               change: { type: 'string' as const },
               magnitude: { type: 'string' as const },
               reason: { type: 'string' as const },
             },
-            required: ['category', 'title', 'change', 'magnitude', 'reason'] as const,
+            required: ['title', 'change', 'magnitude', 'reason'] as const,
           },
           monetization: {
             type: 'object' as const,
             properties: {
-              category: { type: 'string' as const },
               title: { type: 'string' as const },
+              metrics: { type: 'string' as const },
               change: { type: 'string' as const },
               magnitude: { type: 'string' as const },
               reason: { type: 'string' as const },
             },
-            required: ['category', 'title', 'change', 'magnitude', 'reason'] as const,
+            required: ['title', 'change', 'magnitude', 'reason'] as const,
           },
           efficiency: {
             type: 'object' as const,
             properties: {
-              category: { type: 'string' as const },
               title: { type: 'string' as const },
+              metrics: { type: 'string' as const },
               change: { type: 'string' as const },
               magnitude: { type: 'string' as const },
               reason: { type: 'string' as const },
             },
-            required: ['category', 'title', 'change', 'magnitude', 'reason'] as const,
+            required: ['title', 'change', 'magnitude', 'reason'] as const,
           },
         },
         required: ['demand', 'monetization', 'efficiency'] as const,
@@ -438,23 +514,31 @@ ${researchReportText}
       model_impact: {
         type: 'object' as const,
         properties: {
-          revenue_adjustment: { type: 'string' as const },
-          capex_adjustment: { type: 'string' as const },
-          valuation_change: { type: 'string' as const },
+          upgrade_factors: {
+            type: 'array' as const,
+            items: { type: 'string' as const },
+          },
+          downgrade_factors: {
+            type: 'array' as const,
+            items: { type: 'string' as const },
+          },
           logic_chain: { type: 'string' as const },
         },
-        required: ['revenue_adjustment', 'capex_adjustment', 'valuation_change', 'logic_chain'] as const,
+        required: ['upgrade_factors', 'downgrade_factors', 'logic_chain'] as const,
       },
       final_judgment: {
         type: 'object' as const,
         properties: {
           confidence: { type: 'string' as const },
           concerns: { type: 'string' as const },
+          watch_list: { type: 'string' as const },
           net_impact: { type: 'string' as const },
+          long_term_narrative: { type: 'string' as const },
           recommendation: { type: 'string' as const },
         },
-        required: ['confidence', 'concerns', 'net_impact', 'recommendation'] as const,
+        required: ['confidence', 'concerns', 'watch_list', 'net_impact', 'long_term_narrative', 'recommendation'] as const,
       },
+      investment_committee_summary: { type: 'string' as const },
     },
     required: [
       'one_line_conclusion',
@@ -467,6 +551,7 @@ ${researchReportText}
       'sustainability_risks',
       'model_impact',
       'final_judgment',
+      'investment_committee_summary',
     ] as const,
   }
 
@@ -489,7 +574,7 @@ ${researchReportText}
   }
 
   const response = await openrouter.chat({
-    model: 'google/gemini-3-pro-preview',
+    model: 'google/gemini-2.5-flash',
     messages: [
       {
         role: 'system',
@@ -524,7 +609,7 @@ ${researchReportText}
     result.metadata = {
       company_category: companyInfo.categoryName,
       analysis_timestamp: new Date().toISOString(),
-      prompt_version: hasResearchReport ? '2.1-zh-research' : '2.0-zh',
+      prompt_version: hasResearchReport ? '3.0-investment-committee-research' : '3.0-investment-committee',
       has_research_report: hasResearchReport,
     }
     

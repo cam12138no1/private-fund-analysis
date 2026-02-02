@@ -42,17 +42,19 @@ export interface StoredAnalysis {
     checkpoints: string[]
   }
   model_impact?: {
-    revenue_adjustment: string
-    capex_adjustment: string
-    valuation_change: string
+    upgrade_factors: string[]
+    downgrade_factors: string[]
     logic_chain: string
   }
   final_judgment?: {
     confidence: string
     concerns: string
+    watch_list: string
     net_impact: string
+    long_term_narrative: string
     recommendation: string
   }
+  investment_committee_summary?: string
   // 研报对比分析 (可选，仅当有研报时)
   research_comparison?: {
     consensus_source: string
