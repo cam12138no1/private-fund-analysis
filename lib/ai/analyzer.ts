@@ -417,7 +417,25 @@ export async function analyzeFinancialReport(
   }
   
   const hasResearchReport = !!researchReportText && researchReportText.length > 100
+  
+  // Truncate text to avoid token limits (max ~100k chars for financial, ~50k for research)
+  const MAX_FINANCIAL_TEXT = 100000
+  const MAX_RESEARCH_TEXT = 50000
+  
+  let truncatedReportText = reportText
+  if (reportText.length > MAX_FINANCIAL_TEXT) {
+    console.log(`财报文本过长 (${reportText.length} 字符), 截断至 ${MAX_FINANCIAL_TEXT} 字符`)
+    truncatedReportText = reportText.substring(0, MAX_FINANCIAL_TEXT) + '\n\n[财报内容已截断]'
+  }
+  
+  let truncatedResearchText = researchReportText || ''
+  if (truncatedResearchText.length > MAX_RESEARCH_TEXT) {
+    console.log(`研报文本过长 (${truncatedResearchText.length} 字符), 截断至 ${MAX_RESEARCH_TEXT} 字符`)
+    truncatedResearchText = truncatedResearchText.substring(0, MAX_RESEARCH_TEXT) + '\n\n[研报内容已截断]'
+  }
+  
   console.log(`正在分析 ${metadata.company} (${metadata.symbol})，分类为 ${companyInfo.categoryName}，${hasResearchReport ? '包含研报对比' : '无研报'}`)
+  console.log(`财报文本: ${truncatedReportText.length} 字符, 研报文本: ${truncatedResearchText.length} 字符`)
   
   // Build category-specific context
   const categoryContext = companyInfo.category === 'AI_APPLICATION' 
@@ -435,13 +453,13 @@ export async function analyzeFinancialReport(
 市场预期基准：${JSON.stringify(metadata.consensus || {}, null, 2)}
 
 === 财报内容 ===
-${reportText}`
+${truncatedReportText}`
 
   if (hasResearchReport) {
     userMessage += `
 
 === 研报内容（市场预期来源）===
-${researchReportText}
+${truncatedResearchText}
 
 请重点对比财报实际数据与研报中的市场预期，分析Beat/Miss情况及原因。在results_table的consensus列中标注研报来源。`
   }
