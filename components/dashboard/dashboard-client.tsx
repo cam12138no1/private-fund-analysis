@@ -1,8 +1,8 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useTranslations } from 'next-intl'
-import { Plus, TrendingUp, FileText, BarChart3, Upload, Sparkles, ArrowRight } from 'lucide-react'
+import { Plus, TrendingUp, FileText, BarChart3, Upload, Sparkles, ArrowRight, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import Link from 'next/link'
@@ -14,37 +14,81 @@ export default function DashboardClient() {
   const t = useTranslations()
   const [isUploadOpen, setIsUploadOpen] = useState(false)
   const [selectedAnalysis, setSelectedAnalysis] = useState<any>(null)
+  const [processingCount, setProcessingCount] = useState(0)
   const [stats, setStats] = useState({
     totalReports: 0,
     companiesAnalyzed: 0,
     recentAnalyses: 0,
   })
+  const pollIntervalRef = useRef<NodeJS.Timeout | null>(null)
+  const reportListRef = useRef<{ refresh: () => void } | null>(null)
 
-  useEffect(() => {
-    loadDashboardData()
-  }, [])
-
-  const loadDashboardData = async () => {
+  const loadDashboardData = useCallback(async () => {
     try {
       const response = await fetch('/api/dashboard')
       const data = await response.json()
       
       if (data.analyses) {
         setStats({
-          totalReports: data.analyses.length,
-          companiesAnalyzed: new Set(data.analyses.map((a: any) => a.company_symbol)).size,
+          totalReports: data.analyses.filter((a: any) => a.processed).length,
+          companiesAnalyzed: new Set(data.analyses.filter((a: any) => a.processed).map((a: any) => a.company_symbol)).size,
           recentAnalyses: data.analyses.filter((a: any) => {
             const createdDate = new Date(a.created_at)
             const weekAgo = new Date()
             weekAgo.setDate(weekAgo.getDate() - 7)
-            return createdDate > weekAgo
+            return createdDate > weekAgo && a.processed
           }).length,
         })
       }
+      
+      // 更新处理中数量
+      setProcessingCount(data.processingCount || 0)
+      
+      return data.processingCount || 0
     } catch (error) {
       console.error('Failed to load dashboard data:', error)
+      return 0
     }
-  }
+  }, [])
+
+  // 当有处理中的任务时，自动轮询刷新
+  useEffect(() => {
+    loadDashboardData()
+    
+    return () => {
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current)
+      }
+    }
+  }, [loadDashboardData])
+
+  // 处理中时自动刷新
+  useEffect(() => {
+    if (processingCount > 0) {
+      // 每3秒刷新一次
+      pollIntervalRef.current = setInterval(async () => {
+        const count = await loadDashboardData()
+        if (count === 0) {
+          // 处理完成，停止轮询
+          if (pollIntervalRef.current) {
+            clearInterval(pollIntervalRef.current)
+            pollIntervalRef.current = null
+          }
+        }
+      }, 3000)
+    } else {
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current)
+        pollIntervalRef.current = null
+      }
+    }
+
+    return () => {
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current)
+      }
+    }
+  }, [processingCount, loadDashboardData])
 
   if (selectedAnalysis) {
     return (
@@ -57,6 +101,24 @@ export default function DashboardClient() {
 
   return (
     <div className="p-6 space-y-6 bg-gray-50 min-h-screen">
+      {/* Processing Banner */}
+      {processingCount > 0 && (
+        <div className="bg-gradient-to-r from-amber-500 to-orange-500 rounded-xl p-4 text-white flex items-center justify-between shadow-lg animate-pulse">
+          <div className="flex items-center gap-3">
+            <div className="h-10 w-10 rounded-full bg-white/20 flex items-center justify-center">
+              <Loader2 className="h-5 w-5 animate-spin" />
+            </div>
+            <div>
+              <p className="font-semibold">正在分析 {processingCount} 份财报...</p>
+              <p className="text-sm text-amber-100">AI 正在提取数据并生成分析报告，请稍候</p>
+            </div>
+          </div>
+          <div className="text-right">
+            <p className="text-sm text-amber-100">自动刷新中</p>
+          </div>
+        </div>
+      )}
+
       {/* Hero Header */}
       <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 p-8 text-white">
         <div className="absolute inset-0 bg-grid-white/10 [mask-image:linear-gradient(0deg,transparent,white)]" />

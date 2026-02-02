@@ -10,6 +10,8 @@ export const runtime = 'nodejs'
 export const maxDuration = 300 // 5 minutes
 
 export async function POST(request: NextRequest) {
+  let processingId: string | null = null
+  
   try {
     const session = await getServerSession(authOptions)
     if (!session) {
@@ -44,6 +46,21 @@ export async function POST(request: NextRequest) {
     const metadata = await extractMetadataFromReport(reportText)
     console.log('Extracted metadata:', metadata)
 
+    // 创建处理中的记录，让前端能看到进度
+    const processingEntry = analysisStore.add({
+      company_name: metadata.company_name,
+      company_symbol: metadata.company_symbol,
+      report_type: metadata.report_type,
+      fiscal_year: metadata.fiscal_year,
+      fiscal_quarter: metadata.fiscal_quarter || undefined,
+      filing_date: metadata.filing_date,
+      created_at: new Date().toISOString(),
+      processed: false,
+      processing: true,  // 标记为处理中
+    })
+    processingId = processingEntry.id
+    console.log('Created processing entry:', processingId)
+
     // Step 2: Analyze the report
     console.log('Analyzing report with AI...')
     const analysis = await analyzeFinancialReport(reportText, {
@@ -61,29 +78,33 @@ export async function POST(request: NextRequest) {
       },
     })
 
-    // Store in memory (demo mode)
-    const storedAnalysis = analysisStore.add({
-      company_name: metadata.company_name,
-      company_symbol: metadata.company_symbol,
-      report_type: metadata.report_type,
-      fiscal_year: metadata.fiscal_year,
-      fiscal_quarter: metadata.fiscal_quarter || undefined,
-      filing_date: metadata.filing_date,
-      created_at: new Date().toISOString(),
+    // 更新记录为已完成
+    const storedAnalysis = analysisStore.update(processingId, {
       processed: true,
+      processing: false,
       ...analysis,
     })
 
-    console.log('Analysis complete:', storedAnalysis.id)
+    console.log('Analysis complete:', processingId)
 
     return NextResponse.json({
       success: true,
-      analysis_id: storedAnalysis.id,
+      analysis_id: processingId,
       metadata,
       analysis: storedAnalysis,
     })
   } catch (error: any) {
     console.error('Upload and analyze error:', error)
+    
+    // 如果有处理中的记录，标记为错误
+    if (processingId) {
+      analysisStore.update(processingId, {
+        processing: false,
+        processed: false,
+        error: error.message || 'Analysis failed',
+      })
+    }
+    
     return NextResponse.json(
       { error: error.message || 'Failed to process report' },
       { status: 500 }

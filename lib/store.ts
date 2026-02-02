@@ -65,6 +65,15 @@ class AnalysisStore {
     return storedAnalysis
   }
 
+  // 更新已存在的分析
+  update(id: string, updates: Partial<StoredAnalysis>): StoredAnalysis | undefined {
+    const existing = this.analyses.get(id)
+    if (!existing) return undefined
+    const updated = { ...existing, ...updates }
+    this.analyses.set(id, updated)
+    return updated
+  }
+
   get(id: string): StoredAnalysis | undefined {
     return this.analyses.get(id)
   }
@@ -73,6 +82,11 @@ class AnalysisStore {
     return Array.from(this.analyses.values()).sort(
       (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
     )
+  }
+
+  // 获取处理中的数量
+  getProcessingCount(): number {
+    return Array.from(this.analyses.values()).filter(a => a.processing).length
   }
 
   getByCompany(symbol: string): StoredAnalysis[] {
