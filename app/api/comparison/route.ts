@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { openrouter } from '@/lib/openrouter'
-import { sql } from '@vercel/postgres'
+import { kv } from '@vercel/kv'
+import { COMPARISON_PROMPT } from '@/lib/ai/prompts'
 
 /**
  * Cross-company comparison API
@@ -13,50 +14,40 @@ export const runtime = 'nodejs'
 export const maxDuration = 300
 
 interface ComparisonRequest {
-  companyIds: number[]
-  metrics: string[]
+  category: 'AI_APPLICATION' | 'AI_SUPPLY_CHAIN'
+  companySymbols: string[]
+  metrics?: string[]
 }
 
-const COMPARISON_PROMPT = `你是一名顶级美股研究分析师，擅长同赛道公司横向对比分析。
-
-任务：对提供的多家公司财报数据进行横向对比，输出清晰的对比表格和分析。
-
-输出要求：
-
-1. 对比表格（必须包含）：
-   - 公司名称
-   - 报告期
-   - 关键财务指标（Revenue、EPS、Gross Margin、Operating Margin等）
-   - YoY增长率
-   - QoQ增长率
-   - 毛利率
-   - 营业利润率
-   - 现金流
-   - CapEx
-
-2. 相对表现分析：
-   - 谁的增长最快？为什么？
-   - 谁的盈利能力最强？
-   - 谁的投资强度最大？
-   - 估值倍数对比（PE、EV/EBITDA等）
-
-3. 竞争优势识别：
-   - 技术领先性对比
-   - 客户粘性对比
-   - 成本结构对比
-   - 规模效应对比
-
-4. 投资建议排序：
-   - 基于当前财报数据，给出投资吸引力排序
-   - 每家公司的核心买点和主要风险
-   - 估值合理性判断
-
-格式要求：
-- 表格使用markdown格式
-- 数字保留2位小数
-- 百分比用%表示
-- 增长率标注正负
-- 突出最优/最差数据`
+// 公司信息映射
+const COMPANY_INFO: Record<string, { name: string; nameZh: string }> = {
+  // AI应用公司
+  'MSFT': { name: 'Microsoft', nameZh: '微软' },
+  'GOOGL': { name: 'Alphabet (Google)', nameZh: '谷歌' },
+  'AMZN': { name: 'Amazon', nameZh: '亚马逊' },
+  'META': { name: 'Meta Platforms', nameZh: 'Meta' },
+  'CRM': { name: 'Salesforce', nameZh: 'Salesforce' },
+  'NOW': { name: 'ServiceNow', nameZh: 'ServiceNow' },
+  'PLTR': { name: 'Palantir', nameZh: 'Palantir' },
+  'AAPL': { name: 'Apple', nameZh: '苹果' },
+  'APP': { name: 'AppLovin', nameZh: 'AppLovin' },
+  'ADBE': { name: 'Adobe', nameZh: 'Adobe' },
+  // AI供应链公司
+  'NVDA': { name: 'Nvidia', nameZh: '英伟达' },
+  'AMD': { name: 'AMD', nameZh: 'AMD' },
+  'AVGO': { name: 'Broadcom', nameZh: '博通' },
+  'TSM': { name: 'TSMC', nameZh: '台积电' },
+  '000660.KS': { name: 'SK Hynix', nameZh: 'SK海力士' },
+  'MU': { name: 'Micron', nameZh: '美光' },
+  '005930.KS': { name: 'Samsung Electronics', nameZh: '三星电子' },
+  'INTC': { name: 'Intel', nameZh: '英特尔' },
+  'VRT': { name: 'Vertiv', nameZh: 'Vertiv' },
+  'ETN': { name: 'Eaton', nameZh: '伊顿' },
+  'GEV': { name: 'GE Vernova', nameZh: 'GE Vernova' },
+  'VST': { name: 'Vistra', nameZh: 'Vistra' },
+  'ASML': { name: 'ASML', nameZh: '阿斯麦' },
+  'SNPS': { name: 'Synopsys', nameZh: '新思科技' },
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -66,65 +57,78 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    const { companyIds, metrics } = body as ComparisonRequest
+    const { category, companySymbols, metrics } = body as ComparisonRequest
 
-    if (!companyIds || companyIds.length < 2) {
+    if (!companySymbols || companySymbols.length < 2) {
       return NextResponse.json(
-        { error: 'At least 2 companies required for comparison' },
+        { error: '请至少选择2家公司进行对比' },
         { status: 400 }
       )
     }
 
-    // Fetch latest reports for selected companies
-    const reportsData = await Promise.all(
-      companyIds.map(async (companyId) => {
-        const reportResult = await sql`
-          SELECT 
-            c.id as company_id,
-            c.name as company_name,
-            c.symbol as company_symbol,
-            c.category,
-            fr.id as report_id,
-            fr.fiscal_year,
-            fr.fiscal_quarter,
-            fr.filing_date,
-            ar.analysis_content
-          FROM companies c
-          JOIN financial_reports fr ON c.id = fr.company_id
-          LEFT JOIN analysis_results ar ON fr.id = ar.report_id
-          WHERE c.id = ${companyId}
-          ORDER BY fr.fiscal_year DESC, fr.fiscal_quarter DESC
-          LIMIT 1
-        `
-        return reportResult.rows[0]
+    // 获取每家公司的最新分析数据
+    const companiesData = await Promise.all(
+      companySymbols.map(async (symbol) => {
+        // 尝试从KV获取公司分析数据
+        const companyKey = `company:${symbol}`
+        const company = await kv.get<any>(companyKey)
+        
+        // 获取该公司的报告
+        const reportIds = await kv.get<string[]>(`reports:company:${companyKey}`) || []
+        let latestAnalysis = null
+        let latestReport = null
+        
+        for (const reportId of reportIds.reverse()) {
+          const report = await kv.get<any>(reportId)
+          if (report && report.status === 'completed') {
+            const analysisId = await kv.get<string>(`analysis:report:${reportId}`)
+            if (analysisId) {
+              const analysis = await kv.get<any>(analysisId)
+              if (analysis) {
+                latestAnalysis = analysis.resultData
+                latestReport = report
+                break
+              }
+            }
+          }
+        }
+
+        const companyInfo = COMPANY_INFO[symbol] || { name: symbol, nameZh: symbol }
+        
+        return {
+          symbol,
+          name: companyInfo.name,
+          nameZh: companyInfo.nameZh,
+          category,
+          analysis: latestAnalysis,
+          report: latestReport
+        }
       })
     )
 
-    // Filter out companies without reports
-    const validReports = reportsData.filter(r => r && r.analysis_content)
+    // 构建对比请求内容
+    const categoryName = category === 'AI_APPLICATION' ? 'AI应用公司' : 'AI供应链公司'
+    
+    // 构建公司信息列表（即使没有分析数据也列出）
+    const companyListText = companiesData.map((c, i) => {
+      if (c.analysis) {
+        return `
+公司 ${i + 1}: ${c.name} (${c.symbol}) - ${c.nameZh}
+类别: ${categoryName}
+报告期: ${c.report?.fiscalQuarter ? `Q${c.report.fiscalQuarter} ${c.report.fiscalYear}` : c.report?.fiscalYear || '最新'}
+财务分析数据:
+${JSON.stringify(c.analysis, null, 2)}`
+      } else {
+        return `
+公司 ${i + 1}: ${c.name} (${c.symbol}) - ${c.nameZh}
+类别: ${categoryName}
+注意: 该公司尚无已分析的财报数据，请基于公开信息进行对比`
+      }
+    }).join('\n---\n')
 
-    if (validReports.length < 2) {
-      return NextResponse.json(
-        { error: 'Not enough analyzed reports for comparison' },
-        { status: 400 }
-      )
-    }
-
-    // Prepare comparison data
-    const comparisonData = validReports.map(report => ({
-      company: report.company_name,
-      symbol: report.company_symbol,
-      category: report.category,
-      period: report.fiscal_quarter 
-        ? `Q${report.fiscal_quarter} ${report.fiscal_year}`
-        : `FY ${report.fiscal_year}`,
-      analysis: report.analysis_content,
-      filing_date: report.filing_date
-    }))
-
-    // Call AI to generate comparison
+    // 调用AI生成对比分析
     const response = await openrouter.chat({
-      model: 'google/gemini-3-pro-preview',
+      model: 'google/gemini-2.5-flash-preview',
       messages: [
         {
           role: 'system',
@@ -132,57 +136,62 @@ export async function POST(request: NextRequest) {
         },
         {
           role: 'user',
-          content: `请对以下公司进行横向对比分析：
+          content: `请对以下${categoryName}进行横向对比分析：
 
-${comparisonData.map((c, i) => `
-公司 ${i + 1}: ${c.company} (${c.symbol})
-类别: ${c.category}
-报告期: ${c.period}
-财务分析数据:
-${JSON.stringify(c.analysis, null, 2)}
-`).join('\n---\n')}
+${companyListText}
 
 ${metrics && metrics.length > 0 ? `重点对比指标: ${metrics.join(', ')}` : ''}
 
-请输出详细的横向对比分析，包括表格和文字说明。`
+请输出详细的横向对比分析，包括：
+1. 关键指标对比表格（Markdown格式）
+2. 相对表现分析
+3. 竞争优势识别
+4. 投资建议排序
+
+注意：如果某些公司没有详细财报数据，请基于公开市场信息和行业知识进行合理推断和对比。`
         }
       ],
       temperature: 0.3
     })
 
-    const comparisonResult = response.choices[0].message.content
+    const comparisonContent = response.choices[0].message.content
 
-    // Save comparison result
-    const saveResult = await sql`
-      INSERT INTO comparison_analyses (
-        company_ids,
-        comparison_content,
-        created_by
-      )
-      VALUES (
-        ${JSON.stringify(companyIds)},
-        ${comparisonResult},
-        ${(session.user as any).id}
-      )
-      RETURNING id
-    `
+    // 保存对比结果到KV
+    const comparisonId = `comparison:${Date.now()}:${Math.random().toString(36).substr(2, 9)}`
+    const comparisonData = {
+      id: comparisonId,
+      category,
+      companySymbols,
+      comparison_content: comparisonContent,
+      companies: companiesData.map(c => ({
+        symbol: c.symbol,
+        name: c.name,
+        nameZh: c.nameZh,
+        period: c.report?.fiscalQuarter ? `Q${c.report.fiscalQuarter} ${c.report.fiscalYear}` : 'Latest'
+      })),
+      created_at: new Date().toISOString(),
+      created_by: (session.user as any)?.id || 'anonymous'
+    }
+    
+    await kv.set(comparisonId, comparisonData)
+    
+    // 添加到对比历史索引
+    const comparisonIds = await kv.get<string[]>('comparisons:all') || []
+    comparisonIds.push(comparisonId)
+    await kv.set('comparisons:all', comparisonIds)
 
     return NextResponse.json({
       success: true,
-      comparison_id: saveResult.rows[0].id,
-      comparison_content: comparisonResult,
-      companies: comparisonData.map(c => ({
-        name: c.company,
-        symbol: c.symbol,
-        category: c.category,
-        period: c.period
-      }))
+      comparison_id: comparisonId,
+      comparison_content: comparisonContent,
+      category,
+      companies: comparisonData.companies
     })
 
   } catch (error: any) {
     console.error('Comparison error:', error)
     return NextResponse.json(
-      { error: error.message || 'Failed to generate comparison' },
+      { error: error.message || '对比分析失败' },
       { status: 500 }
     )
   }
@@ -199,20 +208,17 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url)
     const limit = parseInt(searchParams.get('limit') || '10')
 
-    const result = await sql`
-      SELECT 
-        ca.id,
-        ca.company_ids,
-        ca.comparison_content,
-        ca.created_at,
-        u.name as created_by_name
-      FROM comparison_analyses ca
-      LEFT JOIN users u ON ca.created_by = u.id
-      ORDER BY ca.created_at DESC
-      LIMIT ${limit}
-    `
+    // 从KV获取对比历史
+    const comparisonIds = await kv.get<string[]>('comparisons:all') || []
+    const recentIds = comparisonIds.slice(-limit).reverse()
+    
+    const comparisons = await Promise.all(
+      recentIds.map(id => kv.get<any>(id))
+    )
 
-    return NextResponse.json({ comparisons: result.rows })
+    return NextResponse.json({ 
+      comparisons: comparisons.filter(Boolean) 
+    })
   } catch (error: any) {
     console.error('Get comparisons error:', error)
     return NextResponse.json(

@@ -1,10 +1,80 @@
 /**
- * AI Supply Chain Company Analysis Prompt
+ * AI财报分析Prompt配置
  * 
- * For companies like: Nvidia, AMD, Broadcom, TSMC, SK Hynix, Micron, 
- * Samsung, Intel, Vertiv, Eaton, GEV, Vistra, ASML, Synopsys
+ * 公司分类：
+ * - AI应用公司：Microsoft, Google, Amazon, Meta, Salesforce, ServiceNow, Palantir, Apple, AppLovin, Adobe
+ * - AI供应链公司：Nvidia, AMD, Broadcom (AVGO), TSMC, SK Hynix, Micron, Samsung, Intel, Vertiv (VRT), Eaton (ETN), GEV, Vistra (VST), ASML, Synopsys (SNPS)
  */
 
+/**
+ * AI应用公司分析Prompt
+ * 
+ * 适用公司：Microsoft, Google, Amazon, Meta, Salesforce, ServiceNow, Palantir, Apple, AppLovin, Adobe
+ */
+export const AI_APPLICATION_PROMPT = `角色与目标
+你是一名顶级美股/科技股研究分析师（sell-side 写作风格），要产出一份可给投委会/董事会阅读的财报分析。你的目标不是复述财报，而是回答：
+"本次财报是否改变了我们对未来 2–3 年现金流与竞争力的判断？"
+
+输入
+公司：{Company}
+报告期：{Quarter/FY}
+市场预期基准：{Consensus 或 指定券商预期}
+材料：{press release / shareholder letter / call transcript / 10-K/10-Q}
+
+输出格式（必须严格按此结构）
+
+0）一句话结论（放第一行）
+用一句话给出 Beat/Miss + 最关键驱动 + 最大风险。
+例："核心收入/指引超预期，增长由{驱动A}+{驱动B}带动；但{风险点}可能在未来{时间窗口}压制利润/FCF。"
+
+1）结果层：业绩与指引 vs 市场预期（只写"差异"和"重要性"）
+用表格或要点列出：
+Revenue / EPS / Operating Income(or EBITDA) / Margin vs 预期（给差值）
+指引（收入/利润/CapEx/Opex）vs 预期（若无指引，给"管理层定性框架"）
+解释：差异来自哪里？是需求、供给、会计/一次性、还是投资节奏？
+规则：不要把所有数字都堆上来；只保留"能改变判断"的数字。
+
+2）驱动层：把增长拆成"机制"（必须拆成三块）
+A. 需求/量： 用户、使用量、订单量、出货量、广告展示、订阅数等（选最相关 2–3 个）
+B. 变现/单价： ARPU/价格/转化率/Take rate/毛利率/广告价格等
+C. 内部效率： 人效、算力效率、履约成本、研发效率、单位成本趋势
+每块都必须回答两句：
+发生了什么变化（指标 + 方向 + 幅度）
+为什么（产品/算法/渠道/供给/组织）
+
+3）投入与 ROI：这轮重投"买到了什么"（必须量化）
+本期投入变化：CapEx / Opex / SBC / 折旧 / 云成本 等（抓主要矛盾）
+投入指向：算力？人才？渠道？供应链？并购？
+ROI 证据：用 2–3 个"已经体现的结果"去证明（例如转化率提升、毛利率改善、交付加速、云订单加速等）
+管理层"底线承诺/框架"：如 OI 绝对值、FCF、利润率区间等（若没有，就写"缺口"）
+
+4）可持续性与风险（给出"未来 2–3 个季度的检查点"）
+用要点列出：
+主要可持续驱动（1–3条）
+主要风险（1–3条）：监管、竞争、供给、成本、宏观、一次性反转等
+检查点：未来哪个指标/事件会验证或证伪（例如：下一季毛利率、Cloud 增速、广告价格、出货节奏等）
+
+5）模型影响（可选但推荐）
+这次财报会让你上调/下调哪些假设？（收入、利润率、CapEx、FCF、WACC、终值等）
+变化的逻辑链：财报信号 → 假设变化 → 估值/目标价变化
+
+6）结尾：一段"投委会可用"的判断
+用 4–6 句话收束：
+我们更有信心/更担心什么
+我们接下来要盯什么
+本季度信息对长期叙事的净影响（更强/更弱/不变）
+
+写作风格约束（强制）
+必须 vs 预期（没有预期就说明并用"隐含预期/历史区间"替代）
+必须把 AI/技术从"故事"落到 指标→机制→财务变量
+必须识别并剥离 一次性因素（罚款、诉讼、重组、资产减值等）
+不允许空泛形容词（"强劲""亮眼"）不带指标`
+
+/**
+ * AI供应链公司分析Prompt
+ * 
+ * 适用公司：Nvidia, AMD, Broadcom, TSMC, SK Hynix, Micron, Samsung, Intel, Vertiv, Eaton, GEV, Vistra, ASML, Synopsys
+ */
 export const AI_SUPPLY_CHAIN_PROMPT = `角色与目标
 你是一名顶级美股/科技股研究分析师（sell-side 写作风格），专注于AI供应链公司分析。你要产出一份可给投委会/董事会阅读的财报分析。你的目标不是复述财报，而是回答：
 "本次财报是否改变了我们对未来 2–3 年AI供应链产能、定价权与现金流的判断？"
@@ -161,168 +231,266 @@ ROI 证据：
 ⚠ 地缘政治风险必须量化：如对华出口占比、替代方案成本`
 
 /**
- * AI Application Company Analysis Prompt
+ * 公司分类配置
  * 
- * For companies like: Microsoft, Google, Amazon, Meta, Salesforce, 
- * ServiceNow, Palantir, Apple, AppLovin, Adobe
+ * 按用户指定的分类：
+ * - AI应用公司：Microsoft, Google, Amazon, Meta, Salesforce, ServiceNow, Palantir, Apple, AppLovin, Adobe
+ * - AI供应链公司：Nvidia, AMD, Broadcom (AVGO), TSMC, SK Hynix, Micron, Samsung, Intel, Vertiv (VRT), Eaton (ETN), GEV, Vistra (VST), ASML, Synopsys (SNPS)
  */
-
-export const AI_APPLICATION_PROMPT = `角色与目标
-你是一名顶级美股/科技股研究分析师（sell-side 写作风格），要产出一份可给投委会/董事会阅读的财报分析。你的目标不是复述财报，而是回答：
-"本次财报是否改变了我们对未来 2–3 年现金流与竞争力的判断？"
-
-输入
-公司：{Company}
-报告期：{Quarter/FY}
-市场预期基准：{Consensus 或 指定券商预期}
-材料：{press release / shareholder letter / call transcript / 10-K/10-Q}
-
-输出格式（必须严格按此结构）
-
-0）一句话结论（放第一行）
-用一句话给出 Beat/Miss + 最关键驱动 + 最大风险。
-例："核心收入/指引超预期，增长由{驱动A}+{驱动B}带动；但{风险点}可能在未来{时间窗口}压制利润/FCF。"
-
-1）结果层：业绩与指引 vs 市场预期（只写"差异"和"重要性"）
-
-用表格或要点列出：
-- Revenue / EPS / Operating Income(or EBITDA) / Margin vs 预期（给差值）
-- 指引（收入/利润/CapEx/Opex）vs 预期（若无指引，给"管理层定性框架"）
-- 解释：差异来自哪里？是需求、供给、会计/一次性、还是投资节奏？
-
-规则：不要把所有数字都堆上来；只保留"能改变判断"的数字。
-
-2）驱动层：把增长拆成"机制"（必须拆成三块）
-
-A. 需求/量：
-- 用户、使用量、订单量、出货量、广告展示、订阅数等（选最相关 2–3 个）
-
-B. 变现/单价：
-- ARPU/价格/转化率/Take rate/毛利率/广告价格等
-
-C. 内部效率：
-- 人效、算力效率、履约成本、研发效率、单位成本趋势
-
-每块都必须回答两句：
-1. 发生了什么变化（指标 + 方向 + 幅度）
-2. 为什么（产品/算法/渠道/供给/组织）
-
-3）投入与 ROI：这轮重投"买到了什么"（必须量化）
-
-本期投入变化：
-- CapEx / Opex / SBC / 折旧 / 云成本 等（抓主要矛盾）
-
-投入指向：
-- 算力？人才？渠道？供应链？并购？
-
-ROI 证据：
-用 2–3 个"已经体现的结果"去证明（例如转化率提升、毛利率改善、交付加速、云订单加速等）
-
-管理层"底线承诺/框架"：
-- 如 OI 绝对值、FCF、利润率区间等（若没有，就写"缺口"）
-
-4）可持续性与风险（给出"未来 2–3 个季度的检查点"）
-
-用要点列出：
-- 主要可持续驱动（1–3条）
-- 主要风险（1–3条）：监管、竞争、供给、成本、宏观、一次性反转等
-- 检查点：未来哪个指标/事件会验证或证伪（例如：下一季毛利率、Cloud 增速、广告价格、出货节奏等）
-
-5）模型影响（可选但推荐）
-
-这次财报会让你上调/下调哪些假设？
-- 收入、利润率、CapEx、FCF、WACC、终值等
-
-变化的逻辑链：
-- 财报信号 → 假设变化 → 估值/目标价变化
-
-6）结尾：一段"投委会可用"的判断
-
-用 4–6 句话收束：
-- 我们更有信心/更担心什么
-- 我们接下来要盯什么
-- 本季度信息对长期叙事的净影响（更强/更弱/不变）
-
-写作风格约束（强制）
-✓ 必须 vs 预期（没有预期就说明并用"隐含预期/历史区间"替代）
-✓ 必须把 AI/技术从"故事"落到 指标→机制→财务变量
-✓ 必须识别并剥离 一次性因素（罚款、诉讼、重组、资产减值等）
-✓ 不允许空泛形容词（"强劲""亮眼"）不带指标`
-
-// Company category mapping
 export const COMPANY_CATEGORIES = {
   'AI_APPLICATION': {
     name: 'AI应用公司',
+    nameEn: 'AI Application Companies',
+    description: '利用AI技术提供产品和服务的公司',
     companies: [
-      'MSFT', 'Microsoft',
-      'GOOGL', 'GOOG', 'Google', 'Alphabet',
-      'AMZN', 'Amazon',
-      'META', 'Meta',
-      'CRM', 'Salesforce',
-      'NOW', 'ServiceNow',
-      'PLTR', 'Palantir',
-      'AAPL', 'Apple',
-      'APP', 'AppLovin',
-      'ADBE', 'Adobe'
+      // Microsoft
+      { symbol: 'MSFT', name: 'Microsoft', nameZh: '微软' },
+      // Google
+      { symbol: 'GOOGL', name: 'Alphabet (Google)', nameZh: '谷歌' },
+      { symbol: 'GOOG', name: 'Alphabet (Google)', nameZh: '谷歌' },
+      // Amazon
+      { symbol: 'AMZN', name: 'Amazon', nameZh: '亚马逊' },
+      // Meta
+      { symbol: 'META', name: 'Meta Platforms', nameZh: 'Meta' },
+      // Salesforce
+      { symbol: 'CRM', name: 'Salesforce', nameZh: 'Salesforce' },
+      // ServiceNow
+      { symbol: 'NOW', name: 'ServiceNow', nameZh: 'ServiceNow' },
+      // Palantir
+      { symbol: 'PLTR', name: 'Palantir', nameZh: 'Palantir' },
+      // Apple
+      { symbol: 'AAPL', name: 'Apple', nameZh: '苹果' },
+      // AppLovin
+      { symbol: 'APP', name: 'AppLovin', nameZh: 'AppLovin' },
+      // Adobe
+      { symbol: 'ADBE', name: 'Adobe', nameZh: 'Adobe' },
     ],
     prompt: AI_APPLICATION_PROMPT
   },
   'AI_SUPPLY_CHAIN': {
     name: 'AI供应链公司',
+    nameEn: 'AI Supply Chain Companies',
+    description: 'AI基础设施和供应链公司',
     companies: [
-      'NVDA', 'Nvidia',
-      'AMD',
-      'AVGO', 'Broadcom',
-      'TSM', 'TSMC',
-      'SKH', 'SK Hynix',
-      'MU', 'Micron',
-      'SSNLF', 'Samsung',
-      'INTC', 'Intel',
-      'VRT', 'Vertiv',
-      'ETN', 'Eaton',
-      'GEV',
-      'VST', 'Vistra',
-      'ASML',
-      'SNPS', 'Synopsys'
+      // Nvidia
+      { symbol: 'NVDA', name: 'Nvidia', nameZh: '英伟达' },
+      // AMD
+      { symbol: 'AMD', name: 'AMD', nameZh: 'AMD' },
+      // Broadcom
+      { symbol: 'AVGO', name: 'Broadcom', nameZh: '博通' },
+      // TSMC
+      { symbol: 'TSM', name: 'TSMC', nameZh: '台积电' },
+      // SK Hynix
+      { symbol: '000660.KS', name: 'SK Hynix', nameZh: 'SK海力士' },
+      // Micron
+      { symbol: 'MU', name: 'Micron', nameZh: '美光' },
+      // Samsung
+      { symbol: '005930.KS', name: 'Samsung Electronics', nameZh: '三星电子' },
+      // Intel
+      { symbol: 'INTC', name: 'Intel', nameZh: '英特尔' },
+      // Vertiv
+      { symbol: 'VRT', name: 'Vertiv', nameZh: 'Vertiv' },
+      // Eaton
+      { symbol: 'ETN', name: 'Eaton', nameZh: '伊顿' },
+      // GE Vernova
+      { symbol: 'GEV', name: 'GE Vernova', nameZh: 'GE Vernova' },
+      // Vistra
+      { symbol: 'VST', name: 'Vistra', nameZh: 'Vistra' },
+      // ASML
+      { symbol: 'ASML', name: 'ASML', nameZh: '阿斯麦' },
+      // Synopsys
+      { symbol: 'SNPS', name: 'Synopsys', nameZh: '新思科技' },
     ],
     prompt: AI_SUPPLY_CHAIN_PROMPT
   }
 }
 
-// Utility function to determine company category
+// 获取所有公司列表（扁平化）
+export function getAllCompanies() {
+  const allCompanies: Array<{
+    symbol: string
+    name: string
+    nameZh: string
+    category: 'AI_APPLICATION' | 'AI_SUPPLY_CHAIN'
+    categoryName: string
+  }> = []
+
+  for (const [categoryKey, category] of Object.entries(COMPANY_CATEGORIES)) {
+    for (const company of category.companies) {
+      allCompanies.push({
+        ...company,
+        category: categoryKey as 'AI_APPLICATION' | 'AI_SUPPLY_CHAIN',
+        categoryName: category.name
+      })
+    }
+  }
+
+  return allCompanies
+}
+
+// 根据股票代码或公司名称获取公司分类
 export function getCompanyCategory(symbolOrName: string): {
   category: 'AI_APPLICATION' | 'AI_SUPPLY_CHAIN' | 'UNKNOWN'
   categoryName: string
+  categoryNameEn: string
   prompt: string
+  company?: {
+    symbol: string
+    name: string
+    nameZh: string
+  }
 } {
-  const upperInput = symbolOrName.toUpperCase()
+  const upperInput = symbolOrName.toUpperCase().trim()
   
-  // Check AI Application companies
-  if (COMPANY_CATEGORIES.AI_APPLICATION.companies.some(c => 
-    c.toUpperCase() === upperInput
-  )) {
-    return {
-      category: 'AI_APPLICATION',
-      categoryName: COMPANY_CATEGORIES.AI_APPLICATION.name,
-      prompt: COMPANY_CATEGORIES.AI_APPLICATION.prompt
+  // 检查AI应用公司
+  for (const company of COMPANY_CATEGORIES.AI_APPLICATION.companies) {
+    if (company.symbol.toUpperCase() === upperInput || 
+        company.name.toUpperCase().includes(upperInput) ||
+        company.nameZh.includes(symbolOrName)) {
+      return {
+        category: 'AI_APPLICATION',
+        categoryName: COMPANY_CATEGORIES.AI_APPLICATION.name,
+        categoryNameEn: COMPANY_CATEGORIES.AI_APPLICATION.nameEn,
+        prompt: COMPANY_CATEGORIES.AI_APPLICATION.prompt,
+        company
+      }
     }
   }
   
-  // Check AI Supply Chain companies
-  if (COMPANY_CATEGORIES.AI_SUPPLY_CHAIN.companies.some(c => 
-    c.toUpperCase() === upperInput
-  )) {
-    return {
-      category: 'AI_SUPPLY_CHAIN',
-      categoryName: COMPANY_CATEGORIES.AI_SUPPLY_CHAIN.name,
-      prompt: COMPANY_CATEGORIES.AI_SUPPLY_CHAIN.prompt
+  // 检查AI供应链公司
+  for (const company of COMPANY_CATEGORIES.AI_SUPPLY_CHAIN.companies) {
+    if (company.symbol.toUpperCase() === upperInput || 
+        company.name.toUpperCase().includes(upperInput) ||
+        company.nameZh.includes(symbolOrName)) {
+      return {
+        category: 'AI_SUPPLY_CHAIN',
+        categoryName: COMPANY_CATEGORIES.AI_SUPPLY_CHAIN.name,
+        categoryNameEn: COMPANY_CATEGORIES.AI_SUPPLY_CHAIN.nameEn,
+        prompt: COMPANY_CATEGORIES.AI_SUPPLY_CHAIN.prompt,
+        company
+      }
     }
   }
   
-  // Default to AI Application prompt for unknown companies
+  // 未知公司默认使用AI应用公司Prompt
   return {
     category: 'UNKNOWN',
     categoryName: '未分类',
+    categoryNameEn: 'Uncategorized',
     prompt: AI_APPLICATION_PROMPT
   }
 }
+
+// 获取指定分类的所有公司
+export function getCompaniesByCategory(category: 'AI_APPLICATION' | 'AI_SUPPLY_CHAIN') {
+  return COMPANY_CATEGORIES[category]?.companies || []
+}
+
+// 横向对比Prompt
+export const COMPARISON_PROMPT = `你是一名顶级美股研究分析师，擅长同赛道公司横向对比分析。
+
+任务：对提供的多家公司财报数据进行横向对比，输出清晰的对比表格和分析。
+
+输出要求：
+
+1. 对比表格（必须包含）：
+   使用Markdown表格格式，包含以下列：
+   | 公司 | 报告期 | Revenue | YoY增长 | EPS | Gross Margin | Operating Margin | FCF | CapEx | 评价 |
+
+2. 关键指标对比分析：
+   - 收入增速对比：谁增长最快？增长来源是什么？
+   - 盈利能力对比：毛利率、营业利润率谁最高？趋势如何？
+   - 现金流对比：FCF/Revenue比率谁最健康？
+   - 投资强度对比：CapEx/Revenue比率，投资方向差异
+
+3. 竞争优势识别：
+   - 技术领先性：AI能力、产品差异化
+   - 客户粘性：客户留存、ARPU趋势
+   - 成本结构：运营杠杆、规模效应
+   - 护城河：网络效应、转换成本、品牌
+
+4. 投资吸引力排序：
+   基于当前财报数据，给出投资吸引力排序（1-N），并说明：
+   - 每家公司的核心买点（1-2条）
+   - 每家公司的主要风险（1-2条）
+   - 估值合理性判断
+
+5. 投委会建议：
+   - 最值得增持的公司及理由
+   - 需要观望的公司及关注点
+   - 建议减持的公司及风险
+
+格式要求：
+- 表格使用markdown格式
+- 数字保留2位小数
+- 百分比用%表示
+- 增长率标注正负
+- 用✅/⚠️/❌标注表现优劣`
+
+// 自定义问题提取Prompt
+export const CUSTOM_EXTRACTION_PROMPT = `你是一名专业的财报分析师，擅长从财报中提取特定信息回答用户问题。
+
+任务：基于提供的财报分析数据，回答用户的特定问题。
+
+要求：
+1. 直接回答问题，不要回避
+2. 引用具体数字和指标
+3. 如果财报中没有直接信息，基于相关数据进行合理推导
+4. 标注信息来源（财报原文/推导结果）
+5. 对于定性问题（如"好坏"判断），给出明确标准和依据
+
+回答格式：
+## 问题
+{用户问题}
+
+## 直接答案
+{1-2句话核心结论}
+
+## 详细分析
+{引用数据+分析逻辑，使用列表或表格呈现}
+
+## 判断依据
+{如适用，说明判断标准和行业对比}
+
+## 相关建议
+{基于分析给出的建议或需要进一步关注的点}`
+
+// 评价体系Prompt
+export const EVALUATION_SYSTEM_PROMPT = `你是一名专业的财报分析师，需要基于用户定义的评价体系对公司财报进行评估。
+
+评价维度说明：
+1. ROI评估：
+   - 计算方法：投资回报 / 投入成本
+   - 好的标准：ROI > 行业平均（通常>15%为良好）
+   - 需要关注：投资回报周期、可持续性
+
+2. 支出收入比评估：
+   - 计算方法：各项费用 / 总收入
+   - 好的标准：
+     - R&D/Revenue: 科技公司10-20%为正常
+     - S&M/Revenue: 取决于增长阶段
+     - G&A/Revenue: <10%为高效
+   - 趋势比绝对值更重要
+
+3. CapEx评估：
+   - 占收入比例：不同行业差异大
+   - 投向分析：增长型vs维护型
+   - 回报周期：短期vs长期
+
+4. 盈利能力评估：
+   - 毛利率：行业对比
+   - 营业利润率：趋势变化
+   - 净利率：一次性因素剔除
+
+5. 现金流评估：
+   - FCF/Revenue：>10%为健康
+   - FCF/Net Income：>80%为高质量
+   - 现金转化周期
+
+输出格式：
+对每个评价维度，给出：
+- 当前数值
+- 行业对比
+- 趋势判断（改善/恶化/稳定）
+- 评级（优秀/良好/一般/较差）
+- 具体建议`

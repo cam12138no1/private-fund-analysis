@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { openrouter } from '@/lib/openrouter'
-import { sql } from '@vercel/postgres'
+import { kv } from '@vercel/kv'
+import { CUSTOM_EXTRACTION_PROMPT, EVALUATION_SYSTEM_PROMPT } from '@/lib/ai/prompts'
 
 /**
  * Custom Questions Extraction API
@@ -13,26 +14,12 @@ export const runtime = 'nodejs'
 export const maxDuration = 180
 
 interface CustomQuestionsRequest {
-  reportId: number
+  companySymbol: string
+  companyName: string
+  category: 'AI_APPLICATION' | 'AI_SUPPLY_CHAIN'
   questions: string[]
+  evaluationCategory?: string
 }
-
-const CUSTOM_EXTRACTION_PROMPT = `你是一名专业的财报分析师，擅长从财报中提取特定信息回答用户问题。
-
-任务：基于提供的财报分析数据，回答用户的特定问题。
-
-要求：
-1. 直接回答问题，不要回避
-2. 引用具体数字和指标
-3. 如果财报中没有直接信息，基于相关数据进行合理推导
-4. 标注信息来源（财报原文/推导结果）
-5. 对于定性问题（如"好坏"判断），给出明确标准和依据
-
-回答格式：
-- 问题重述
-- 直接答案（1-2句话核心结论）
-- 详细解释（引用数据+分析逻辑）
-- 判断依据（如适用）`
 
 export async function POST(request: NextRequest) {
   try {
@@ -42,70 +29,78 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    const { reportId, questions } = body as CustomQuestionsRequest
+    const { companySymbol, companyName, category, questions, evaluationCategory } = body as CustomQuestionsRequest
 
-    if (!reportId || !questions || questions.length === 0) {
+    if (!companySymbol || !questions || questions.length === 0) {
       return NextResponse.json(
-        { error: 'Report ID and questions are required' },
+        { error: '请选择公司并输入问题' },
         { status: 400 }
       )
     }
 
-    // Fetch report and analysis data
-    const reportResult = await sql`
-      SELECT 
-        c.name as company_name,
-        c.symbol as company_symbol,
-        c.category,
-        fr.fiscal_year,
-        fr.fiscal_quarter,
-        fr.document_url,
-        ar.analysis_content
-      FROM financial_reports fr
-      JOIN companies c ON fr.company_id = c.id
-      LEFT JOIN analysis_results ar ON fr.id = ar.report_id
-      WHERE fr.id = ${reportId}
-    `
-
-    if (reportResult.rows.length === 0) {
-      return NextResponse.json(
-        { error: 'Report not found' },
-        { status: 404 }
-      )
+    // 尝试获取该公司的最新分析数据
+    const companyKey = `company:${companySymbol}`
+    const reportIds = await kv.get<string[]>(`reports:company:${companyKey}`) || []
+    
+    let latestAnalysis = null
+    let latestReport = null
+    
+    for (const reportId of reportIds.reverse()) {
+      const report = await kv.get<any>(reportId)
+      if (report && report.status === 'completed') {
+        const analysisId = await kv.get<string>(`analysis:report:${reportId}`)
+        if (analysisId) {
+          const analysis = await kv.get<any>(analysisId)
+          if (analysis) {
+            latestAnalysis = analysis.resultData
+            latestReport = report
+            break
+          }
+        }
+      }
     }
 
-    const report = reportResult.rows[0]
+    // 选择合适的系统提示
+    const systemPrompt = evaluationCategory 
+      ? EVALUATION_SYSTEM_PROMPT 
+      : CUSTOM_EXTRACTION_PROMPT
 
-    if (!report.analysis_content) {
-      return NextResponse.json(
-        { error: 'Report not analyzed yet' },
-        { status: 400 }
-      )
-    }
+    const categoryName = category === 'AI_APPLICATION' ? 'AI应用公司' : 'AI供应链公司'
 
-    // Generate answers for each question
+    // 为每个问题生成答案
     const answers = []
 
     for (const question of questions) {
-      const response = await openrouter.chat({
-        model: 'google/gemini-3-pro-preview',
-        messages: [
-          {
-            role: 'system',
-            content: CUSTOM_EXTRACTION_PROMPT
-          },
-          {
-            role: 'user',
-            content: `公司: ${report.company_name} (${report.company_symbol})
-类别: ${report.category}
-报告期: ${report.fiscal_quarter ? `Q${report.fiscal_quarter}` : 'FY'} ${report.fiscal_year}
+      const userContent = latestAnalysis
+        ? `公司: ${companyName} (${companySymbol})
+类别: ${categoryName}
+报告期: ${latestReport?.fiscalQuarter ? `Q${latestReport.fiscalQuarter} ${latestReport.fiscalYear}` : latestReport?.fiscalYear || '最新'}
 
 财报分析数据:
-${JSON.stringify(report.analysis_content, null, 2)}
+${JSON.stringify(latestAnalysis, null, 2)}
 
 用户问题: ${question}
 
-请详细回答这个问题。`
+请详细回答这个问题，引用具体数据和指标。`
+        : `公司: ${companyName} (${companySymbol})
+类别: ${categoryName}
+
+注意: 该公司尚无已分析的财报数据，请基于公开市场信息和行业知识回答。
+
+用户问题: ${question}
+
+请基于公开信息尽可能详细地回答这个问题。`
+
+      const response = await openrouter.chat({
+        model: 'google/gemini-2.5-flash-preview',
+        messages: [
+          {
+            role: 'system',
+            content: systemPrompt
+          },
+          {
+            role: 'user',
+            content: userContent
           }
         ],
         temperature: 0.3
@@ -117,38 +112,40 @@ ${JSON.stringify(report.analysis_content, null, 2)}
       })
     }
 
-    // Save custom Q&A
-    const saveResult = await sql`
-      INSERT INTO custom_questions (
-        report_id,
-        questions,
-        answers,
-        created_by
-      )
-      VALUES (
-        ${reportId},
-        ${JSON.stringify(questions)},
-        ${JSON.stringify(answers)},
-        ${(session.user as any).id}
-      )
-      RETURNING id
-    `
+    // 保存问答记录到KV
+    const qaId = `customq:${Date.now()}:${Math.random().toString(36).substr(2, 9)}`
+    const qaData = {
+      id: qaId,
+      companySymbol,
+      company_name: companyName,
+      category,
+      questions,
+      answers,
+      evaluationCategory,
+      created_at: new Date().toISOString(),
+      created_by: (session.user as any)?.id || 'anonymous'
+    }
+    
+    await kv.set(qaId, qaData)
+    
+    // 添加到问答历史索引
+    const qaIds = await kv.get<string[]>('customquestions:all') || []
+    qaIds.push(qaId)
+    await kv.set('customquestions:all', qaIds)
 
     return NextResponse.json({
       success: true,
-      qa_id: saveResult.rows[0].id,
-      company: report.company_name,
-      symbol: report.company_symbol,
-      period: report.fiscal_quarter 
-        ? `Q${report.fiscal_quarter} ${report.fiscal_year}`
-        : `FY ${report.fiscal_year}`,
+      qa_id: qaId,
+      company: companyName,
+      symbol: companySymbol,
+      category,
       answers
     })
 
   } catch (error: any) {
     console.error('Custom questions error:', error)
     return NextResponse.json(
-      { error: error.message || 'Failed to process questions' },
+      { error: error.message || '问题处理失败' },
       { status: 500 }
     )
   }
@@ -163,52 +160,25 @@ export async function GET(request: NextRequest) {
     }
 
     const { searchParams } = new URL(request.url)
-    const reportId = searchParams.get('reportId')
+    const companySymbol = searchParams.get('companySymbol')
     const limit = parseInt(searchParams.get('limit') || '10')
 
-    let query
-    if (reportId) {
-      query = sql`
-        SELECT 
-          cq.id,
-          cq.report_id,
-          cq.questions,
-          cq.answers,
-          cq.created_at,
-          c.name as company_name,
-          c.symbol as company_symbol,
-          fr.fiscal_year,
-          fr.fiscal_quarter
-        FROM custom_questions cq
-        JOIN financial_reports fr ON cq.report_id = fr.id
-        JOIN companies c ON fr.company_id = c.id
-        WHERE cq.report_id = ${parseInt(reportId)}
-        ORDER BY cq.created_at DESC
-        LIMIT ${limit}
-      `
-    } else {
-      query = sql`
-        SELECT 
-          cq.id,
-          cq.report_id,
-          cq.questions,
-          cq.answers,
-          cq.created_at,
-          c.name as company_name,
-          c.symbol as company_symbol,
-          fr.fiscal_year,
-          fr.fiscal_quarter
-        FROM custom_questions cq
-        JOIN financial_reports fr ON cq.report_id = fr.id
-        JOIN companies c ON fr.company_id = c.id
-        ORDER BY cq.created_at DESC
-        LIMIT ${limit}
-      `
+    // 从KV获取问答历史
+    const qaIds = await kv.get<string[]>('customquestions:all') || []
+    const recentIds = qaIds.slice(-limit).reverse()
+    
+    let qas = await Promise.all(
+      recentIds.map(id => kv.get<any>(id))
+    )
+    
+    qas = qas.filter(Boolean)
+    
+    // 如果指定了公司，过滤
+    if (companySymbol) {
+      qas = qas.filter(qa => qa.companySymbol === companySymbol)
     }
 
-    const result = await query
-
-    return NextResponse.json({ qas: result.rows })
+    return NextResponse.json({ qas })
   } catch (error: any) {
     console.error('Get Q&A error:', error)
     return NextResponse.json(

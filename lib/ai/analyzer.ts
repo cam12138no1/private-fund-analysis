@@ -1,5 +1,5 @@
 import { openrouter } from '../openrouter'
-import { getCompanyCategory } from './prompts'
+import { getCompanyCategory, AI_APPLICATION_PROMPT, AI_SUPPLY_CHAIN_PROMPT } from './prompts'
 
 export interface ReportMetadata {
   company: string
@@ -81,78 +81,80 @@ export interface AnalysisResult {
     net_impact: string          // 净影响 (更强/更弱/不变)
     recommendation: string      // 建议
   }
+  
+  // 元数据
+  metadata?: {
+    company_category: string
+    analysis_timestamp: string
+    prompt_version: string
+  }
 }
 
-const ANALYSIS_PROMPT = `角色与目标
-你是一名顶级美股/科技股研究分析师（sell-side 写作风格），要产出一份可给投委会/董事会阅读的财报分析。你的目标不是复述财报，而是回答：
-"本次财报是否改变了我们对未来 2–3 年现金流与竞争力的判断？"
+// JSON输出格式的系统提示
+const JSON_OUTPUT_INSTRUCTION = `
 
-重要说明：年报(10-K)通常与Q4合并发布，请正确识别报告期类型。
-
-输出格式（必须严格按此JSON结构，每个字段都必须填写完整内容）
-
-请返回以下JSON格式的完整分析：
+请严格按照以下JSON格式输出分析结果：
 
 {
-  "one_line_conclusion": "一句话结论：Beat/Miss + 最关键驱动 + 最大风险。例：核心收入/指引超预期，增长由{驱动A}+{驱动B}带动；但{风险点}可能在未来{时间窗口}压制利润/FCF。",
+  "one_line_conclusion": "一句话结论：Beat/Miss + 最关键驱动 + 最大风险",
   
-  "results_summary": "结果层概述，如：业绩强劲，指引炸裂，CapEx震惊市场。",
+  "results_summary": "结果层概述",
   
   "results_table": [
-    {"metric": "Revenue", "actual": "$59.89B", "consensus": "~$58.45B", "delta": "+2.5%", "assessment": "Beat (广告需求强劲)"},
-    {"metric": "EPS (Diluted)", "actual": "$8.88", "consensus": "~$8.20", "delta": "+8.3%", "assessment": "Beat (运营杠杆显现)"},
-    {"metric": "Operating Income", "actual": "$24.75B", "consensus": "~$23.5B", "delta": "+5.3%", "assessment": "Beat (核心业务利润率稳健)"},
-    {"metric": "Reality Labs OI", "actual": "$(6.02)B", "consensus": "~$(5.67)B", "delta": "-6.2%", "assessment": "Miss (亏损幅度大于预期)"},
-    {"metric": "Q1 '26 指引", "actual": "$53.5-56.5B", "consensus": "~$51.3B", "delta": "+7%", "assessment": "Strong Beat (增长加速信号)"},
-    {"metric": "FY '26 CapEx", "actual": "$115-135B", "consensus": "~$110B", "delta": "+13.6%", "assessment": "Shock (远超预期)"}
+    {"metric": "Revenue", "actual": "$XXB", "consensus": "~$XXB", "delta": "+X%", "assessment": "Beat/Miss/Inline (原因)"},
+    {"metric": "EPS (Diluted)", "actual": "$X.XX", "consensus": "~$X.XX", "delta": "+X%", "assessment": "Beat/Miss/Inline"},
+    {"metric": "Operating Income", "actual": "$XXB", "consensus": "~$XXB", "delta": "+X%", "assessment": "Beat/Miss/Inline"},
+    {"metric": "Gross Margin", "actual": "XX%", "consensus": "~XX%", "delta": "+Xbps", "assessment": "改善/恶化"},
+    {"metric": "Operating Margin", "actual": "XX%", "consensus": "~XX%", "delta": "+Xbps", "assessment": "改善/恶化"},
+    {"metric": "指引 (下季度/全年)", "actual": "$XX-XXB", "consensus": "~$XXB", "delta": "+X%", "assessment": "Strong Beat/Miss"}
   ],
   
-  "results_explanation": "关键解释：收入超预期源于...；CapEx激增因为...",
+  "results_explanation": "关键解释：收入超预期源于...；差异主要来自...",
   
-  "drivers_summary": "驱动概述，如：增长逻辑已从'用户红利'完全切换为'AI提效'",
+  "drivers_summary": "驱动概述",
   
   "drivers": {
     "demand": {
       "category": "A",
-      "title": "需求/量：用户/使用量/订单量",
-      "change": "变化描述，如：DAP达3.58亿，同比增长+6.9%",
-      "magnitude": "幅度，如：+6.9% YoY",
-      "reason": "原因，如：推荐算法优化使用户停留时间延长"
+      "title": "需求/量",
+      "change": "具体变化描述（指标+方向+幅度）",
+      "magnitude": "幅度（如+X% YoY）",
+      "reason": "原因分析（产品/算法/渠道/供给/组织）"
     },
     "monetization": {
       "category": "B",
-      "title": "变现/单价：ARPU/价格/转化率",
-      "change": "变化描述",
+      "title": "变现/单价",
+      "change": "具体变化描述",
       "magnitude": "幅度",
-      "reason": "原因"
+      "reason": "原因分析"
     },
     "efficiency": {
       "category": "C",
-      "title": "内部效率：人效/算力效率/成本",
-      "change": "变化描述",
+      "title": "内部效率",
+      "change": "具体变化描述",
       "magnitude": "幅度",
-      "reason": "原因"
+      "reason": "原因分析"
     }
   },
   
   "investment_roi": {
-    "capex_change": "CapEx变化描述，如：FY2025达$72.2B，FY2026指引跳涨至$115-135B",
+    "capex_change": "CapEx变化描述",
     "opex_change": "Opex变化描述",
     "investment_direction": "投入指向：算力/人才/渠道/供应链/并购",
     "roi_evidence": ["ROI证据1", "ROI证据2", "ROI证据3"],
-    "management_commitment": "管理层底线承诺，如：2026年OI将高于2025年"
+    "management_commitment": "管理层底线承诺"
   },
   
   "sustainability_risks": {
     "sustainable_drivers": ["可持续驱动1", "可持续驱动2", "可持续驱动3"],
     "main_risks": ["主要风险1：描述", "主要风险2：描述", "主要风险3：描述"],
-    "checkpoints": ["检查点1：下一季度需关注...", "检查点2", "检查点3"]
+    "checkpoints": ["检查点1", "检查点2", "检查点3"]
   },
   
   "model_impact": {
-    "revenue_adjustment": "收入假设调整，如：将FY2026收入增速从15%上调至18-20%",
+    "revenue_adjustment": "收入假设调整",
     "capex_adjustment": "CapEx假设调整",
-    "valuation_change": "估值变化，如：下调FCF权重，上调EPS权重",
+    "valuation_change": "估值变化",
     "logic_chain": "逻辑链：财报信号 → 假设变化 → 估值变化"
   },
   
@@ -160,36 +162,39 @@ const ANALYSIS_PROMPT = `角色与目标
     "confidence": "我们更有信心的是...",
     "concerns": "我们更担心的是...",
     "net_impact": "更强/更弱/不变",
-    "recommendation": "建议：如在回调时买入..."
+    "recommendation": "建议"
   }
 }
 
-写作风格约束（强制）
-- 必须 vs 预期（没有预期就用"隐含预期/历史区间"替代）
-- 必须把 AI/技术从"故事"落到 指标→机制→财务变量
-- 必须识别并剥离 一次性因素（罚款、诉讼、重组、资产减值等）
-- 不允许空泛形容词（"强劲""亮眼"）不带指标
-- results_table必须包含至少5-7行关键指标`
+重要要求：
+1. results_table必须包含至少5-7行关键指标
+2. 每个字段都必须填写完整内容，不能留空
+3. 所有数字必须具体，不能用占位符
+4. 必须严格遵循JSON格式`
 
 export async function analyzeFinancialReport(
   reportText: string,
   metadata: ReportMetadata
 ): Promise<AnalysisResult> {
-  // Determine company category and get appropriate prompt
+  // 确定公司类别并获取对应的Prompt
   const companyInfo = getCompanyCategory(metadata.symbol || metadata.company)
-  console.log(`Analyzing ${metadata.company} as ${companyInfo.categoryName}`)
+  console.log(`Analyzing ${metadata.company} (${metadata.symbol}) as ${companyInfo.categoryName}`)
+  
+  // 构建完整的系统Prompt
+  const systemPrompt = companyInfo.prompt + JSON_OUTPUT_INSTRUCTION
   
   const response = await openrouter.chat({
-    model: 'google/gemini-3-pro-preview',
+    model: 'google/gemini-2.5-flash-preview',
     messages: [
       {
         role: 'system',
-        content: companyInfo.prompt,
+        content: systemPrompt,
       },
       {
         role: 'user',
         content: `公司: ${metadata.company} (${metadata.symbol})
 报告期: ${metadata.period}
+公司类别: ${companyInfo.categoryName}
 市场预期基准: ${JSON.stringify(metadata.consensus || {}, null, 2)}
 
 财报内容:
@@ -335,5 +340,24 @@ ${reportText}
   })
 
   const content = response.choices[0].message.content
-  return JSON.parse(content)
+  const result = JSON.parse(content)
+  
+  // 添加元数据
+  result.metadata = {
+    company_category: companyInfo.category,
+    analysis_timestamp: new Date().toISOString(),
+    prompt_version: '2.0'
+  }
+  
+  return result
+}
+
+// 批量分析多个财报（用于横向对比）
+export async function analyzeMultipleReports(
+  reports: Array<{ text: string; metadata: ReportMetadata }>
+): Promise<AnalysisResult[]> {
+  const results = await Promise.all(
+    reports.map(report => analyzeFinancialReport(report.text, report.metadata))
+  )
+  return results
 }
