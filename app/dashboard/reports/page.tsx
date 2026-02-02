@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { useTranslations } from 'next-intl'
+import { useTranslations, useLocale } from 'next-intl'
 import { FileText, Download, Eye, Loader2, TrendingUp, TrendingDown, AlertTriangle } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -30,11 +30,12 @@ interface Analysis {
     concerns?: string
     net_impact?: string
     recommendation?: string
-  } | string  // 兼容旧数据格式
+  } | string
 }
 
 export default function ReportsPage() {
-  const t = useTranslations()
+  const t = useTranslations('reports')
+  const locale = useLocale()
   const [analyses, setAnalyses] = useState<Analysis[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [selectedAnalysis, setSelectedAnalysis] = useState<Analysis | null>(null)
@@ -56,11 +57,10 @@ export default function ReportsPage() {
   }
 
   const handleExport = (analysis: Analysis) => {
-    exportAnalysisToExcel(analysis as any, 'zh')
+    exportAnalysisToExcel(analysis as any, locale)
   }
 
   const handleExportAll = () => {
-    // Export summary of all analyses
     if (analyses.length === 0) return
     
     import('xlsx').then((XLSX) => {
@@ -68,10 +68,10 @@ export default function ReportsPage() {
       
       // Summary sheet
       const summaryData = [
-        ['AI金融工具 - 分析汇总报告'],
-        ['生成时间', new Date().toLocaleString('zh-CN')],
+        [t('summaryReport')],
+        [t('generatedAt'), new Date().toLocaleString(locale === 'zh' ? 'zh-CN' : 'en-US')],
         [''],
-        ['公司', '代码', '报告类型', '财年', '季度', '一句话结论', '主要风险', '投资建议'],
+        [t('company'), t('symbol'), t('reportType'), t('fiscalYear'), t('quarter'), t('oneLineConclusion'), t('mainRisks'), t('investmentAdvice')],
         ...analyses.map(a => [
           a.company_name,
           a.company_symbol,
@@ -90,13 +90,13 @@ export default function ReportsPage() {
         { wch: 20 }, { wch: 10 }, { wch: 12 }, { wch: 8 }, { wch: 8 }, 
         { wch: 50 }, { wch: 40 }, { wch: 50 }
       ]
-      XLSX.utils.book_append_sheet(wb, summarySheet, '汇总')
+      XLSX.utils.book_append_sheet(wb, summarySheet, 'Summary')
 
       // Key metrics sheet
       const metricsData = [
-        ['关键财务指标对比'],
+        [t('keyMetricsComparison')],
         [''],
-        ['公司', '代码', '收入(实际)', '收入(预期)', '收入差异', 'EPS(实际)', 'EPS(预期)', 'EPS差异'],
+        [t('company'), t('symbol'), t('revenueActual'), t('revenueExpected'), t('revenueDelta'), t('epsActual'), t('epsExpected'), t('epsDelta')],
         ...analyses.map(a => [
           a.company_name,
           a.company_symbol,
@@ -113,13 +113,13 @@ export default function ReportsPage() {
         { wch: 20 }, { wch: 10 }, { wch: 12 }, { wch: 12 }, { wch: 12 },
         { wch: 12 }, { wch: 12 }, { wch: 12 }
       ]
-      XLSX.utils.book_append_sheet(wb, metricsSheet, '财务指标')
+      XLSX.utils.book_append_sheet(wb, metricsSheet, 'Metrics')
 
       // Risk summary sheet
       const riskData = [
-        ['风险汇总'],
+        [t('riskSummary')],
         [''],
-        ['公司', '代码', '可持续驱动因素', '主要风险', '检查点'],
+        [t('company'), t('symbol'), t('sustainableDrivers'), t('mainRisks'), t('checkpoints')],
         ...analyses.map(a => [
           a.company_name,
           a.company_symbol,
@@ -130,9 +130,9 @@ export default function ReportsPage() {
       ]
       const riskSheet = XLSX.utils.aoa_to_sheet(riskData)
       riskSheet['!cols'] = [{ wch: 20 }, { wch: 10 }, { wch: 40 }, { wch: 40 }, { wch: 40 }]
-      XLSX.utils.book_append_sheet(wb, riskSheet, '风险汇总')
+      XLSX.utils.book_append_sheet(wb, riskSheet, 'Risks')
 
-      XLSX.writeFile(wb, `AI金融工具_分析汇总_${new Date().toISOString().split('T')[0]}.xlsx`)
+      XLSX.writeFile(wb, `Financial_Analysis_Summary_${new Date().toISOString().split('T')[0]}.xlsx`)
     })
   }
 
@@ -150,7 +150,7 @@ export default function ReportsPage() {
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-4">
             <Button variant="outline" onClick={() => setSelectedAnalysis(null)}>
-              ← 返回列表
+              ← {t('backToList')}
             </Button>
             <div>
               <h1 className="text-2xl font-bold">
@@ -165,14 +165,14 @@ export default function ReportsPage() {
           </div>
           <Button onClick={() => handleExport(selectedAnalysis)}>
             <Download className="h-4 w-4 mr-2" />
-            导出Excel
+            {t('exportExcel')}
           </Button>
         </div>
 
         {/* Analysis Content */}
         <Card className="border-l-4 border-l-blue-600">
           <CardHeader>
-            <CardTitle>执行摘要</CardTitle>
+            <CardTitle>{t('executiveSummary')}</CardTitle>
           </CardHeader>
           <CardContent>
             <p className="text-lg">{selectedAnalysis.one_line_conclusion}</p>
@@ -181,12 +181,12 @@ export default function ReportsPage() {
 
         <Card>
           <CardHeader>
-            <CardTitle>业绩 vs 预期</CardTitle>
+            <CardTitle>{t('resultsVsExpectations')}</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="grid grid-cols-3 gap-4">
               <div className="p-4 bg-gray-50 rounded-lg">
-                <div className="text-sm text-gray-600">收入</div>
+                <div className="text-sm text-gray-600">{t('revenue')}</div>
                 <div className="text-2xl font-bold">
                   {selectedAnalysis.results_vs_expectations?.revenue?.actual || '-'}M
                 </div>
@@ -204,7 +204,7 @@ export default function ReportsPage() {
                 </div>
               </div>
               <div className="p-4 bg-gray-50 rounded-lg">
-                <div className="text-sm text-gray-600">营业利润</div>
+                <div className="text-sm text-gray-600">{t('operatingProfit')}</div>
                 <div className="text-2xl font-bold">
                   {selectedAnalysis.results_vs_expectations?.operating_income?.actual || '-'}M
                 </div>
@@ -221,7 +221,7 @@ export default function ReportsPage() {
             <CardHeader>
               <CardTitle className="flex items-center">
                 <TrendingUp className="h-5 w-5 text-green-600 mr-2" />
-                可持续驱动因素
+                {t('sustainableDrivers')}
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -240,7 +240,7 @@ export default function ReportsPage() {
             <CardHeader>
               <CardTitle className="flex items-center">
                 <AlertTriangle className="h-5 w-5 text-red-600 mr-2" />
-                主要风险
+                {t('mainRisks')}
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -258,7 +258,7 @@ export default function ReportsPage() {
 
         <Card className="border-l-4 border-l-purple-600">
           <CardHeader>
-            <CardTitle>投委会结论</CardTitle>
+            <CardTitle>{t('investmentCommitteeConclusion')}</CardTitle>
           </CardHeader>
           <CardContent>
             {typeof selectedAnalysis.final_judgment === 'string' ? (
@@ -267,25 +267,25 @@ export default function ReportsPage() {
               <div className="space-y-4">
                 {selectedAnalysis.final_judgment?.confidence && (
                   <div>
-                    <p className="text-sm font-medium text-gray-500">更有信心</p>
+                    <p className="text-sm font-medium text-gray-500">{t('moreConfident')}</p>
                     <p className="text-gray-900">{selectedAnalysis.final_judgment.confidence}</p>
                   </div>
                 )}
                 {selectedAnalysis.final_judgment?.concerns && (
                   <div>
-                    <p className="text-sm font-medium text-gray-500">更担心</p>
+                    <p className="text-sm font-medium text-gray-500">{t('moreConcerned')}</p>
                     <p className="text-gray-900">{selectedAnalysis.final_judgment.concerns}</p>
                   </div>
                 )}
                 {selectedAnalysis.final_judgment?.net_impact && (
                   <div>
-                    <p className="text-sm font-medium text-gray-500">净影响</p>
+                    <p className="text-sm font-medium text-gray-500">{t('netImpact')}</p>
                     <p className="text-lg font-semibold text-blue-600">{selectedAnalysis.final_judgment.net_impact}</p>
                   </div>
                 )}
                 {selectedAnalysis.final_judgment?.recommendation && (
                   <div>
-                    <p className="text-sm font-medium text-gray-500">建议</p>
+                    <p className="text-sm font-medium text-gray-500">{t('recommendation')}</p>
                     <p className="text-gray-900">{selectedAnalysis.final_judgment.recommendation}</p>
                   </div>
                 )}
@@ -301,13 +301,13 @@ export default function ReportsPage() {
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">分析报告</h1>
-          <p className="text-gray-600 mt-1">查看和导出所有财报分析</p>
+          <h1 className="text-3xl font-bold text-gray-900">{t('analysisReports')}</h1>
+          <p className="text-gray-600 mt-1">{t('viewAndExport')}</p>
         </div>
         {analyses.length > 0 && (
           <Button onClick={handleExportAll}>
             <Download className="h-4 w-4 mr-2" />
-            导出汇总表
+            {t('exportSummary')}
           </Button>
         )}
       </div>
@@ -316,8 +316,8 @@ export default function ReportsPage() {
         <Card>
           <CardContent className="py-12 text-center">
             <FileText className="mx-auto h-12 w-12 text-gray-400 mb-4" />
-            <h3 className="text-lg font-medium text-gray-900 mb-2">暂无分析报告</h3>
-            <p className="text-gray-600">上传财报PDF后，分析结果将显示在这里</p>
+            <h3 className="text-lg font-medium text-gray-900 mb-2">{t('noAnalysisReports')}</h3>
+            <p className="text-gray-600">{t('uploadToSeeResults')}</p>
           </CardContent>
         </Card>
       ) : (
@@ -338,7 +338,7 @@ export default function ReportsPage() {
                         {analysis.report_type} • 
                         {analysis.fiscal_quarter ? `Q${analysis.fiscal_quarter} ` : ''}
                         {analysis.fiscal_year} • 
-                        {new Date(analysis.created_at).toLocaleDateString('zh-CN')}
+                        {new Date(analysis.created_at).toLocaleDateString(locale === 'zh' ? 'zh-CN' : 'en-US')}
                       </p>
                       <p className="text-sm text-gray-700 mt-1 line-clamp-1">
                         {analysis.one_line_conclusion}
@@ -346,14 +346,14 @@ export default function ReportsPage() {
                     </div>
                   </div>
                   <div className="flex items-center space-x-2">
-                    <Badge variant="success">已分析</Badge>
+                    <Badge variant="success">{t('analyzed')}</Badge>
                     <Button variant="outline" size="sm" onClick={() => setSelectedAnalysis(analysis)}>
                       <Eye className="h-4 w-4 mr-1" />
-                      查看
+                      {t('view')}
                     </Button>
                     <Button variant="outline" size="sm" onClick={() => handleExport(analysis)}>
                       <Download className="h-4 w-4 mr-1" />
-                      导出
+                      {t('export')}
                     </Button>
                   </div>
                 </div>

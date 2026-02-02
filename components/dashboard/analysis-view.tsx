@@ -25,7 +25,7 @@ interface AnalysisViewProps {
 }
 
 export default function AnalysisView({ analysis, onBack }: AnalysisViewProps) {
-  const t = useTranslations()
+  const t = useTranslations('analysis')
   const locale = useLocale()
 
   const handleExport = () => {
@@ -33,32 +33,32 @@ export default function AnalysisView({ analysis, onBack }: AnalysisViewProps) {
     
     // Sheet 1: Summary
     const summaryData = [
-      ['财报分析报告', ''],
+      [t('reportTitle'), ''],
       [''],
-      ['公司', analysis.company_name],
-      ['代码', analysis.company_symbol],
-      ['报告期', analysis.fiscal_quarter ? `Q${analysis.fiscal_quarter} ${analysis.fiscal_year}` : `FY ${analysis.fiscal_year}`],
-      ['分析时间', new Date(analysis.created_at).toLocaleString('zh-CN')],
+      [t('company'), analysis.company_name],
+      [t('symbol'), analysis.company_symbol],
+      [t('reportPeriod'), analysis.fiscal_quarter ? `Q${analysis.fiscal_quarter} ${analysis.fiscal_year}` : `FY ${analysis.fiscal_year}`],
+      [t('analysisTime'), new Date(analysis.created_at).toLocaleString(locale === 'zh' ? 'zh-CN' : 'en-US')],
       [''],
-      ['一句话结论'],
+      [t('oneLineConclusion')],
       [analysis.one_line_conclusion || ''],
       [''],
-      ['投委会判断'],
-      ['净影响', analysis.final_judgment?.net_impact || ''],
-      ['信心来源', analysis.final_judgment?.confidence || ''],
-      ['担忧', analysis.final_judgment?.concerns || ''],
-      ['建议', analysis.final_judgment?.recommendation || ''],
+      [t('investmentCommitteeJudgment')],
+      [t('netImpact'), analysis.final_judgment?.net_impact || ''],
+      [t('confidenceSource'), analysis.final_judgment?.confidence || ''],
+      [t('concerns'), analysis.final_judgment?.concerns || ''],
+      [t('recommendation'), analysis.final_judgment?.recommendation || ''],
     ]
     const summarySheet = XLSX.utils.aoa_to_sheet(summaryData)
-    XLSX.utils.book_append_sheet(wb, summarySheet, '摘要')
+    XLSX.utils.book_append_sheet(wb, summarySheet, t('summary'))
     
     // Sheet 2: Results Table
     if (analysis.results_table?.length > 0) {
       const resultsData = [
-        ['结果层：业绩 vs 预期'],
+        [t('resultsVsExpectationsTitle')],
         [analysis.results_summary || ''],
         [''],
-        ['指标', '实际值', '市场预期', '差异', '评价'],
+        [t('metric'), t('actual'), t('consensus'), t('delta'), t('assessment')],
         ...analysis.results_table.map((row: any) => [
           row.metric,
           row.actual,
@@ -67,60 +67,60 @@ export default function AnalysisView({ analysis, onBack }: AnalysisViewProps) {
           row.assessment,
         ]),
         [''],
-        ['关键解释'],
+        [t('keyExplanation')],
         [analysis.results_explanation || ''],
       ]
       const resultsSheet = XLSX.utils.aoa_to_sheet(resultsData)
-      XLSX.utils.book_append_sheet(wb, resultsSheet, '结果层')
+      XLSX.utils.book_append_sheet(wb, resultsSheet, 'Results')
     }
     
     // Sheet 3: Drivers
     if (analysis.drivers) {
       const driversData = [
-        ['驱动层分析'],
+        [t('driversAnalysis')],
         [analysis.drivers_summary || ''],
         [''],
-        ['A. 需求/量'],
-        ['变化', analysis.drivers.demand?.change || ''],
-        ['幅度', analysis.drivers.demand?.magnitude || ''],
-        ['原因', analysis.drivers.demand?.reason || ''],
+        [`A. ${t('demandVolume')}`],
+        [t('change'), analysis.drivers.demand?.change || ''],
+        [t('magnitude'), analysis.drivers.demand?.magnitude || ''],
+        [t('reason'), analysis.drivers.demand?.reason || ''],
         [''],
-        ['B. 变现/单价'],
-        ['变化', analysis.drivers.monetization?.change || ''],
-        ['幅度', analysis.drivers.monetization?.magnitude || ''],
-        ['原因', analysis.drivers.monetization?.reason || ''],
+        [`B. ${t('monetizationPricing')}`],
+        [t('change'), analysis.drivers.monetization?.change || ''],
+        [t('magnitude'), analysis.drivers.monetization?.magnitude || ''],
+        [t('reason'), analysis.drivers.monetization?.reason || ''],
         [''],
-        ['C. 内部效率'],
-        ['变化', analysis.drivers.efficiency?.change || ''],
-        ['幅度', analysis.drivers.efficiency?.magnitude || ''],
-        ['原因', analysis.drivers.efficiency?.reason || ''],
+        [`C. ${t('internalEfficiency')}`],
+        [t('change'), analysis.drivers.efficiency?.change || ''],
+        [t('magnitude'), analysis.drivers.efficiency?.magnitude || ''],
+        [t('reason'), analysis.drivers.efficiency?.reason || ''],
       ]
       const driversSheet = XLSX.utils.aoa_to_sheet(driversData)
-      XLSX.utils.book_append_sheet(wb, driversSheet, '驱动层')
+      XLSX.utils.book_append_sheet(wb, driversSheet, 'Drivers')
     }
     
     // Sheet 4: Investment & Risks
     const investmentData = [
-      ['投入与ROI'],
+      [t('investmentAndRoi')],
       [''],
-      ['CapEx变化', analysis.investment_roi?.capex_change || ''],
-      ['Opex变化', analysis.investment_roi?.opex_change || ''],
-      ['投入指向', analysis.investment_roi?.investment_direction || ''],
-      ['管理层承诺', analysis.investment_roi?.management_commitment || ''],
+      [t('capexChange'), analysis.investment_roi?.capex_change || ''],
+      [t('opexChange'), analysis.investment_roi?.opex_change || ''],
+      [t('investmentDirection'), analysis.investment_roi?.investment_direction || ''],
+      [t('managementCommitment'), analysis.investment_roi?.management_commitment || ''],
       [''],
-      ['ROI证据'],
+      [t('roiEvidence')],
       ...(analysis.investment_roi?.roi_evidence?.map((e: string) => [e]) || []),
       [''],
-      ['风险与检查点'],
+      [t('risksAndCheckpoints')],
       [''],
-      ['主要风险'],
+      [t('mainRisks')],
       ...(analysis.sustainability_risks?.main_risks?.map((r: string) => [r]) || []),
       [''],
-      ['检查点'],
+      [t('checkpoints')],
       ...(analysis.sustainability_risks?.checkpoints?.map((c: string) => [c]) || []),
     ]
     const investmentSheet = XLSX.utils.aoa_to_sheet(investmentData)
-    XLSX.utils.book_append_sheet(wb, investmentSheet, '投入与风险')
+    XLSX.utils.book_append_sheet(wb, investmentSheet, 'Investment & Risks')
     
     const filename = `${analysis.company_symbol}_${analysis.fiscal_year}${analysis.fiscal_quarter ? `Q${analysis.fiscal_quarter}` : 'FY'}_Analysis.xlsx`
     XLSX.writeFile(wb, filename)
@@ -168,7 +168,7 @@ export default function AnalysisView({ analysis, onBack }: AnalysisViewProps) {
         </div>
         <Button onClick={handleExport} className="bg-gradient-to-r from-blue-600 to-indigo-600">
           <Download className="h-4 w-4 mr-2" />
-          导出 Excel
+          {t('exportToExcel')}
         </Button>
       </div>
 
@@ -180,16 +180,16 @@ export default function AnalysisView({ analysis, onBack }: AnalysisViewProps) {
               <Target className="h-5 w-5" />
             </div>
             <div>
-              <h3 className="text-sm font-medium text-blue-100 mb-2">一句话结论</h3>
+              <h3 className="text-sm font-medium text-blue-100 mb-2">{t('oneLineConclusion')}</h3>
               <p className="text-lg font-medium leading-relaxed">
-                {analysis.one_line_conclusion || '暂无结论'}
+                {analysis.one_line_conclusion || t('noConclusion')}
               </p>
             </div>
           </div>
         </CardContent>
       </Card>
 
-      {/* Results Table - 结果层 */}
+      {/* Results Table */}
       {analysis.results_table && analysis.results_table.length > 0 && (
         <Card className="border-0 shadow-sm">
           <CardHeader className="pb-2">
@@ -198,7 +198,7 @@ export default function AnalysisView({ analysis, onBack }: AnalysisViewProps) {
                 <DollarSign className="h-5 w-5 text-blue-600" />
               </div>
               <div>
-                <CardTitle className="text-lg">1) 结果层：业绩与指引 vs 市场预期</CardTitle>
+                <CardTitle className="text-lg">1) {t('resultsVsExpectationsTitle')}</CardTitle>
                 {analysis.results_summary && (
                   <p className="text-sm text-gray-500 mt-1">{analysis.results_summary}</p>
                 )}
@@ -210,11 +210,11 @@ export default function AnalysisView({ analysis, onBack }: AnalysisViewProps) {
               <table className="w-full">
                 <thead>
                   <tr className="border-b border-gray-100">
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">指标 (USD)</th>
-                    <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase">实际值</th>
-                    <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase">市场预期</th>
-                    <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase">差异</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">评价</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">{t('metric')}</th>
+                    <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase">{t('actual')}</th>
+                    <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase">{t('consensus')}</th>
+                    <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase">{t('delta')}</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">{t('assessment')}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50">
@@ -239,7 +239,7 @@ export default function AnalysisView({ analysis, onBack }: AnalysisViewProps) {
             
             {analysis.results_explanation && (
               <div className="mt-4 p-4 bg-blue-50 rounded-xl border border-blue-100">
-                <h4 className="font-medium text-blue-900 mb-1">关键解释</h4>
+                <h4 className="font-medium text-blue-900 mb-1">{t('keyExplanation')}</h4>
                 <p className="text-sm text-blue-800">{analysis.results_explanation}</p>
               </div>
             )}
@@ -247,7 +247,7 @@ export default function AnalysisView({ analysis, onBack }: AnalysisViewProps) {
         </Card>
       )}
 
-      {/* Drivers - 驱动层 */}
+      {/* Drivers */}
       {analysis.drivers && (
         <Card className="border-0 shadow-sm">
           <CardHeader className="pb-2">
@@ -256,7 +256,7 @@ export default function AnalysisView({ analysis, onBack }: AnalysisViewProps) {
                 <Zap className="h-5 w-5 text-purple-600" />
               </div>
               <div>
-                <CardTitle className="text-lg">2) 驱动层：增长机制拆解</CardTitle>
+                <CardTitle className="text-lg">2) {t('driversAnalysis')}</CardTitle>
                 {analysis.drivers_summary && (
                   <p className="text-sm text-gray-500 mt-1">{analysis.drivers_summary}</p>
                 )}
@@ -269,20 +269,18 @@ export default function AnalysisView({ analysis, onBack }: AnalysisViewProps) {
               <div className="p-4 bg-gradient-to-br from-green-50 to-emerald-50 rounded-xl border border-green-100">
                 <div className="flex items-center gap-2 mb-3">
                   <Users className="h-4 w-4 text-green-600" />
-                  <h4 className="font-semibold text-green-900">A. 需求/量</h4>
+                  <h4 className="font-semibold text-green-900">A. {t('demandVolume')}</h4>
                 </div>
                 <div className="space-y-2 text-sm">
                   <p className="text-gray-700">
-                    <span className="font-medium text-gray-900">变化：</span>
-                    {analysis.drivers.demand?.change || '-'}
+                    <span className="font-medium text-gray-900">{t('change')}:</span> {analysis.drivers.demand?.change || '-'}
                   </p>
                   <p className="text-gray-700">
-                    <span className="font-medium text-gray-900">幅度：</span>
-                    <span className="text-green-600 font-medium">{analysis.drivers.demand?.magnitude || '-'}</span>
+                    <span className="font-medium text-gray-900">{t('magnitude')}:</span>
+                    <span className="text-green-600 font-medium"> {analysis.drivers.demand?.magnitude || '-'}</span>
                   </p>
                   <p className="text-gray-700">
-                    <span className="font-medium text-gray-900">原因：</span>
-                    {analysis.drivers.demand?.reason || '-'}
+                    <span className="font-medium text-gray-900">{t('reason')}:</span> {analysis.drivers.demand?.reason || '-'}
                   </p>
                 </div>
               </div>
@@ -291,20 +289,18 @@ export default function AnalysisView({ analysis, onBack }: AnalysisViewProps) {
               <div className="p-4 bg-gradient-to-br from-blue-50 to-indigo-50 rounded-xl border border-blue-100">
                 <div className="flex items-center gap-2 mb-3">
                   <DollarSign className="h-4 w-4 text-blue-600" />
-                  <h4 className="font-semibold text-blue-900">B. 变现/单价</h4>
+                  <h4 className="font-semibold text-blue-900">B. {t('monetizationPricing')}</h4>
                 </div>
                 <div className="space-y-2 text-sm">
                   <p className="text-gray-700">
-                    <span className="font-medium text-gray-900">变化：</span>
-                    {analysis.drivers.monetization?.change || '-'}
+                    <span className="font-medium text-gray-900">{t('change')}:</span> {analysis.drivers.monetization?.change || '-'}
                   </p>
                   <p className="text-gray-700">
-                    <span className="font-medium text-gray-900">幅度：</span>
-                    <span className="text-blue-600 font-medium">{analysis.drivers.monetization?.magnitude || '-'}</span>
+                    <span className="font-medium text-gray-900">{t('magnitude')}:</span>
+                    <span className="text-blue-600 font-medium"> {analysis.drivers.monetization?.magnitude || '-'}</span>
                   </p>
                   <p className="text-gray-700">
-                    <span className="font-medium text-gray-900">原因：</span>
-                    {analysis.drivers.monetization?.reason || '-'}
+                    <span className="font-medium text-gray-900">{t('reason')}:</span> {analysis.drivers.monetization?.reason || '-'}
                   </p>
                 </div>
               </div>
@@ -313,20 +309,18 @@ export default function AnalysisView({ analysis, onBack }: AnalysisViewProps) {
               <div className="p-4 bg-gradient-to-br from-amber-50 to-orange-50 rounded-xl border border-amber-100">
                 <div className="flex items-center gap-2 mb-3">
                   <Zap className="h-4 w-4 text-amber-600" />
-                  <h4 className="font-semibold text-amber-900">C. 内部效率</h4>
+                  <h4 className="font-semibold text-amber-900">C. {t('internalEfficiency')}</h4>
                 </div>
                 <div className="space-y-2 text-sm">
                   <p className="text-gray-700">
-                    <span className="font-medium text-gray-900">变化：</span>
-                    {analysis.drivers.efficiency?.change || '-'}
+                    <span className="font-medium text-gray-900">{t('change')}:</span> {analysis.drivers.efficiency?.change || '-'}
                   </p>
                   <p className="text-gray-700">
-                    <span className="font-medium text-gray-900">幅度：</span>
-                    <span className="text-amber-600 font-medium">{analysis.drivers.efficiency?.magnitude || '-'}</span>
+                    <span className="font-medium text-gray-900">{t('magnitude')}:</span>
+                    <span className="text-amber-600 font-medium"> {analysis.drivers.efficiency?.magnitude || '-'}</span>
                   </p>
                   <p className="text-gray-700">
-                    <span className="font-medium text-gray-900">原因：</span>
-                    {analysis.drivers.efficiency?.reason || '-'}
+                    <span className="font-medium text-gray-900">{t('reason')}:</span> {analysis.drivers.efficiency?.reason || '-'}
                   </p>
                 </div>
               </div>
@@ -343,32 +337,32 @@ export default function AnalysisView({ analysis, onBack }: AnalysisViewProps) {
               <div className="h-10 w-10 rounded-lg bg-indigo-100 flex items-center justify-center">
                 <TrendingUp className="h-5 w-5 text-indigo-600" />
               </div>
-              <CardTitle className="text-lg">3) 投入与 ROI</CardTitle>
+              <CardTitle className="text-lg">3) {t('investmentAndRoi')}</CardTitle>
             </div>
           </CardHeader>
           <CardContent>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
               <div className="p-4 bg-gray-50 rounded-xl">
-                <p className="text-xs font-medium text-gray-500 mb-1">CapEx 变化</p>
+                <p className="text-xs font-medium text-gray-500 mb-1">{t('capexChange')}</p>
                 <p className="text-gray-900">{analysis.investment_roi.capex_change || '-'}</p>
               </div>
               <div className="p-4 bg-gray-50 rounded-xl">
-                <p className="text-xs font-medium text-gray-500 mb-1">Opex 变化</p>
+                <p className="text-xs font-medium text-gray-500 mb-1">{t('opexChange')}</p>
                 <p className="text-gray-900">{analysis.investment_roi.opex_change || '-'}</p>
               </div>
               <div className="p-4 bg-gray-50 rounded-xl">
-                <p className="text-xs font-medium text-gray-500 mb-1">投入指向</p>
+                <p className="text-xs font-medium text-gray-500 mb-1">{t('investmentDirection')}</p>
                 <p className="text-gray-900">{analysis.investment_roi.investment_direction || '-'}</p>
               </div>
               <div className="p-4 bg-amber-50 rounded-xl border border-amber-100">
-                <p className="text-xs font-medium text-amber-700 mb-1">管理层承诺</p>
+                <p className="text-xs font-medium text-amber-700 mb-1">{t('managementCommitment')}</p>
                 <p className="text-amber-900 font-medium">{analysis.investment_roi.management_commitment || '-'}</p>
               </div>
             </div>
             
             {analysis.investment_roi.roi_evidence && analysis.investment_roi.roi_evidence.length > 0 && (
               <div className="p-4 bg-green-50 rounded-xl border border-green-100">
-                <p className="text-xs font-medium text-green-700 mb-2">ROI 证据（已验证）</p>
+                <p className="text-xs font-medium text-green-700 mb-2">{t('roiEvidence')}</p>
                 <ul className="space-y-1">
                   {analysis.investment_roi.roi_evidence.map((evidence: string, idx: number) => (
                     <li key={idx} className="text-sm text-green-800 flex items-start gap-2">
@@ -391,7 +385,7 @@ export default function AnalysisView({ analysis, onBack }: AnalysisViewProps) {
             <CardHeader className="pb-2">
               <CardTitle className="text-base flex items-center gap-2">
                 <TrendingUp className="h-4 w-4 text-green-600" />
-                可持续驱动
+                {t('sustainableDrivers')}
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -411,7 +405,7 @@ export default function AnalysisView({ analysis, onBack }: AnalysisViewProps) {
             <CardHeader className="pb-2">
               <CardTitle className="text-base flex items-center gap-2">
                 <AlertTriangle className="h-4 w-4 text-red-600" />
-                主要风险
+                {t('mainRisks')}
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -431,7 +425,7 @@ export default function AnalysisView({ analysis, onBack }: AnalysisViewProps) {
             <CardHeader className="pb-2">
               <CardTitle className="text-base flex items-center gap-2">
                 <Target className="h-4 w-4 text-blue-600" />
-                检查点
+                {t('checkpoints')}
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -458,25 +452,25 @@ export default function AnalysisView({ analysis, onBack }: AnalysisViewProps) {
               <div className="h-10 w-10 rounded-lg bg-purple-100 flex items-center justify-center">
                 <ArrowUpRight className="h-5 w-5 text-purple-600" />
               </div>
-              <CardTitle className="text-lg">5) 模型影响</CardTitle>
+              <CardTitle className="text-lg">5) {t('modelImpact')}</CardTitle>
             </div>
           </CardHeader>
           <CardContent>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="p-4 bg-gray-50 rounded-xl">
-                <p className="text-xs font-medium text-gray-500 mb-1">收入假设调整</p>
+                <p className="text-xs font-medium text-gray-500 mb-1">{t('revenueAssumptionAdjustment')}</p>
                 <p className="text-gray-900">{analysis.model_impact.revenue_adjustment || '-'}</p>
               </div>
               <div className="p-4 bg-gray-50 rounded-xl">
-                <p className="text-xs font-medium text-gray-500 mb-1">CapEx 假设调整</p>
+                <p className="text-xs font-medium text-gray-500 mb-1">{t('capexAssumptionAdjustment')}</p>
                 <p className="text-gray-900">{analysis.model_impact.capex_adjustment || '-'}</p>
               </div>
               <div className="p-4 bg-gray-50 rounded-xl md:col-span-2">
-                <p className="text-xs font-medium text-gray-500 mb-1">估值变化</p>
+                <p className="text-xs font-medium text-gray-500 mb-1">{t('valuationChange')}</p>
                 <p className="text-gray-900">{analysis.model_impact.valuation_change || '-'}</p>
               </div>
               <div className="p-4 bg-purple-50 rounded-xl border border-purple-100 md:col-span-2">
-                <p className="text-xs font-medium text-purple-700 mb-1">逻辑链</p>
+                <p className="text-xs font-medium text-purple-700 mb-1">{t('logicChain')}</p>
                 <p className="text-purple-900">{analysis.model_impact.logic_chain || '-'}</p>
               </div>
             </div>
@@ -492,35 +486,35 @@ export default function AnalysisView({ analysis, onBack }: AnalysisViewProps) {
               <div className="h-8 w-8 rounded-lg bg-white/10 flex items-center justify-center">
                 <CheckCircle2 className="h-4 w-4" />
               </div>
-              6) 投委会判断
+              6) {t('investmentCommitteeJudgment')}
             </h3>
             
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
               <div className="p-4 bg-white/10 rounded-xl">
-                <p className="text-xs font-medium text-slate-300 mb-2">更有信心的是</p>
+                <p className="text-xs font-medium text-slate-300 mb-2">{t('moreConfident')}</p>
                 <p className="text-white">{analysis.final_judgment.confidence || '-'}</p>
               </div>
               <div className="p-4 bg-white/10 rounded-xl">
-                <p className="text-xs font-medium text-slate-300 mb-2">更担心的是</p>
+                <p className="text-xs font-medium text-slate-300 mb-2">{t('moreConcerned')}</p>
                 <p className="text-white">{analysis.final_judgment.concerns || '-'}</p>
               </div>
             </div>
             
             <div className="flex items-center gap-4 p-4 bg-white/10 rounded-xl">
               <div>
-                <p className="text-xs font-medium text-slate-300 mb-1">净影响</p>
+                <p className="text-xs font-medium text-slate-300 mb-1">{t('netImpact')}</p>
                 <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm font-bold ${
-                  analysis.final_judgment.net_impact?.includes('强') ? 'bg-green-500 text-white' :
-                  analysis.final_judgment.net_impact?.includes('弱') ? 'bg-red-500 text-white' :
+                  analysis.final_judgment.net_impact?.toLowerCase().includes('strong') ? 'bg-green-500 text-white' :
+                  analysis.final_judgment.net_impact?.toLowerCase().includes('weak') ? 'bg-red-500 text-white' :
                   'bg-slate-600 text-white'
                 }`}>
-                  {analysis.final_judgment.net_impact?.includes('强') && <TrendingUp className="h-3.5 w-3.5" />}
-                  {analysis.final_judgment.net_impact?.includes('弱') && <TrendingDown className="h-3.5 w-3.5" />}
+                  {analysis.final_judgment.net_impact?.toLowerCase().includes('strong') && <TrendingUp className="h-3.5 w-3.5" />}
+                  {analysis.final_judgment.net_impact?.toLowerCase().includes('weak') && <TrendingDown className="h-3.5 w-3.5" />}
                   {analysis.final_judgment.net_impact || '-'}
                 </span>
               </div>
               <div className="flex-1">
-                <p className="text-xs font-medium text-slate-300 mb-1">建议</p>
+                <p className="text-xs font-medium text-slate-300 mb-1">{t('recommendation')}</p>
                 <p className="text-white font-medium">{analysis.final_judgment.recommendation || '-'}</p>
               </div>
             </div>
