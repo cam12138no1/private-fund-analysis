@@ -25,30 +25,28 @@ interface FileWithStatus {
 // Company categories for selection
 const COMPANY_CATEGORIES = {
   AI_APPLICATION: {
-    name: 'AI Application Companies',
-    nameZh: 'AI应用公司',
+    name: 'AI应用公司',
     icon: Building2,
     color: 'blue',
-    description: 'Microsoft, Google, Amazon, Meta, Salesforce, etc.'
+    description: 'Microsoft, Google, Amazon, Meta, Salesforce 等'
   },
   AI_SUPPLY_CHAIN: {
-    name: 'AI Supply Chain Companies',
-    nameZh: 'AI供应链公司',
+    name: 'AI供应链公司',
     icon: Cpu,
     color: 'purple',
-    description: 'Nvidia, AMD, TSMC, ASML, etc.'
+    description: 'Nvidia, AMD, TSMC, ASML 等'
   }
 }
 
-// Status display configuration
+// Status display configuration - Chinese labels
 const STATUS_CONFIG = {
-  pending: { icon: Clock, color: 'gray', label: 'Waiting', progress: 0 },
-  uploading: { icon: Upload, color: 'blue', label: 'Uploading', progress: 20 },
-  extracting: { icon: FileSearch, color: 'indigo', label: 'Extracting Text', progress: 40 },
-  analyzing: { icon: Brain, color: 'purple', label: 'AI Analyzing', progress: 70 },
-  saving: { icon: Save, color: 'green', label: 'Saving Results', progress: 90 },
-  success: { icon: CheckCircle2, color: 'green', label: 'Complete', progress: 100 },
-  error: { icon: AlertCircle, color: 'red', label: 'Failed', progress: 0 },
+  pending: { icon: Clock, color: 'gray', label: '等待中' },
+  uploading: { icon: Upload, color: 'blue', label: '上传中' },
+  extracting: { icon: FileSearch, color: 'indigo', label: '提取文本' },
+  analyzing: { icon: Brain, color: 'purple', label: 'AI分析中' },
+  saving: { icon: Save, color: 'green', label: '保存结果' },
+  success: { icon: CheckCircle2, color: 'green', label: '完成' },
+  error: { icon: AlertCircle, color: 'red', label: '失败' },
 }
 
 export default function UploadModal({ isOpen, onClose, onSuccess }: UploadModalProps) {
@@ -105,8 +103,8 @@ export default function UploadModal({ isOpen, onClose, onSuccess }: UploadModalP
 
     if (invalidFiles.length > 0) {
       toast({
-        title: t('common.error'),
-        description: `${t('upload.onlyPdfSupported')}: ${invalidFiles.join(', ')}`,
+        title: '格式错误',
+        description: `仅支持PDF格式: ${invalidFiles.join(', ')}`,
         variant: 'destructive',
       })
     }
@@ -144,8 +142,8 @@ export default function UploadModal({ isOpen, onClose, onSuccess }: UploadModalP
   const handleSubmit = async () => {
     if (files.length === 0) {
       toast({
-        title: t('common.error'),
-        description: t('upload.selectFile'),
+        title: '错误',
+        description: '请选择要上传的文件',
         variant: 'destructive',
       })
       return
@@ -153,8 +151,8 @@ export default function UploadModal({ isOpen, onClose, onSuccess }: UploadModalP
 
     if (!selectedCategory) {
       toast({
-        title: t('common.error'),
-        description: 'Please select a company category',
+        title: '错误',
+        description: '请选择公司分类',
         variant: 'destructive',
       })
       return
@@ -194,7 +192,7 @@ export default function UploadModal({ isOpen, onClose, onSuccess }: UploadModalP
 
         if (!response.ok) {
           const result = await response.json()
-          throw new Error(result.error || 'Upload failed')
+          throw new Error(result.error || '上传失败')
         }
 
         const result = await response.json()
@@ -217,7 +215,7 @@ export default function UploadModal({ isOpen, onClose, onSuccess }: UploadModalP
         // Show individual success toast
         toast({
           title: `✅ ${fileItem.file.name}`,
-          description: `Analysis complete for ${result.metadata?.company_name || 'report'}`,
+          description: `${result.metadata?.company_name || '财报'} 分析完成`,
         })
         
       } catch (error: any) {
@@ -225,13 +223,13 @@ export default function UploadModal({ isOpen, onClose, onSuccess }: UploadModalP
         updateFileStatus(fileItem.id, { 
           status: 'error', 
           progress: 0,
-          error: error.message || 'Analysis failed'
+          error: error.message || '分析失败'
         })
         
         // Show individual error toast
         toast({
           title: `❌ ${fileItem.file.name}`,
-          description: error.message || 'Analysis failed',
+          description: error.message || '分析失败',
           variant: 'destructive',
         })
         
@@ -242,8 +240,8 @@ export default function UploadModal({ isOpen, onClose, onSuccess }: UploadModalP
     // Show final summary toast
     if (results.success > 0) {
       toast({
-        title: `📊 Analysis Complete`,
-        description: `Successfully analyzed ${results.success} report(s)${results.failed > 0 ? `, ${results.failed} failed` : ''}`,
+        title: `📊 分析完成`,
+        description: `成功分析 ${results.success} 份财报${results.failed > 0 ? `，${results.failed} 份失败` : ''}`,
       })
     }
 
@@ -285,11 +283,11 @@ export default function UploadModal({ isOpen, onClose, onSuccess }: UploadModalP
         <div className="bg-gradient-to-r from-blue-600 to-indigo-600 px-6 py-5 flex-shrink-0">
           <div className="flex items-center justify-between">
             <div>
-              <h2 className="text-xl font-bold text-white">{t('upload.title')}</h2>
+              <h2 className="text-xl font-bold text-white">上传财报</h2>
               <p className="text-blue-100 text-sm mt-1">
                 {showProgress 
-                  ? `Processing ${processingCount} / ${files.length} reports...`
-                  : t('upload.subtitle')
+                  ? `正在处理 ${processingCount} / ${files.length} 份财报...`
+                  : '支持批量上传PDF格式财报文件'
                 }
               </p>
             </div>
@@ -308,10 +306,10 @@ export default function UploadModal({ isOpen, onClose, onSuccess }: UploadModalP
           {showProgress && files.length > 0 && (
             <div className="mt-4">
               <div className="flex justify-between text-xs text-blue-100 mb-1">
-                <span>{completedCount} completed</span>
-                <span>{errorCount > 0 ? `${errorCount} failed` : ''}</span>
+                <span>{completedCount} 已完成</span>
+                <span>{errorCount > 0 ? `${errorCount} 失败` : ''}</span>
               </div>
-              <div className="h-2 bg-blue-400/30 rounded-full overflow-hidden">
+              <div className="h-2 bg-white/20 rounded-full overflow-hidden">
                 <div 
                   className="h-full bg-white transition-all duration-500 ease-out"
                   style={{ width: `${(completedCount / files.length) * 100}%` }}
@@ -326,7 +324,7 @@ export default function UploadModal({ isOpen, onClose, onSuccess }: UploadModalP
           {!showProgress && (
             <div className="space-y-3">
               <label className="text-sm font-medium text-gray-700">
-                Company Category <span className="text-red-500">*</span>
+                公司分类 <span className="text-red-500">*</span>
               </label>
               <div className="grid grid-cols-2 gap-3">
                 {Object.entries(COMPANY_CATEGORIES).map(([key, category]) => {
@@ -367,7 +365,7 @@ export default function UploadModal({ isOpen, onClose, onSuccess }: UploadModalP
                 })}
               </div>
               <p className="text-xs text-gray-500">
-                Select the category to use the appropriate analysis prompt for the company type.
+                选择公司分类以使用对应的分析模板
               </p>
             </div>
           )}
@@ -402,10 +400,10 @@ export default function UploadModal({ isOpen, onClose, onSuccess }: UploadModalP
                   </div>
                   <div>
                     <p className="text-lg font-medium text-gray-900">
-                      {t('upload.dragDrop')} <span className="text-blue-600">{t('upload.clickSelect')}</span>
+                      拖拽文件到此处或 <span className="text-blue-600">点击选择</span>
                     </p>
                     <p className="text-sm text-gray-500 mt-1">
-                      {t('upload.supportBatch')}
+                      支持批量上传PDF格式财报文件
                     </p>
                   </div>
                 </div>
@@ -418,11 +416,11 @@ export default function UploadModal({ isOpen, onClose, onSuccess }: UploadModalP
             <div className="space-y-3">
               <div className="flex items-center justify-between text-sm">
                 <span className="font-medium text-gray-700">
-                  {showProgress ? 'Processing Status' : `${files.length} file(s) selected`}
+                  {showProgress ? '处理状态' : `已选择 ${files.length} 个文件`}
                 </span>
                 {!showProgress && (
                   <span className="text-gray-500">
-                    {(totalSize / 1024 / 1024).toFixed(2)} MB total
+                    共 {(totalSize / 1024 / 1024).toFixed(2)} MB
                   </span>
                 )}
               </div>
@@ -525,8 +523,8 @@ export default function UploadModal({ isOpen, onClose, onSuccess }: UploadModalP
             <>
               <div className="text-sm text-gray-600">
                 {completedCount === files.length 
-                  ? '✅ All reports processed!'
-                  : `Processing ${processingCount} of ${files.length} reports...`
+                  ? '✅ 所有财报处理完成！'
+                  : `正在处理 ${processingCount} / ${files.length} 份财报...`
                 }
               </div>
               <Button
@@ -539,13 +537,13 @@ export default function UploadModal({ isOpen, onClose, onSuccess }: UploadModalP
                 disabled={isSubmitting}
                 variant={completedCount === files.length ? 'default' : 'outline'}
               >
-                {completedCount === files.length ? 'Done' : 'Close'}
+                {completedCount === files.length ? '完成' : '关闭'}
               </Button>
             </>
           ) : (
             <>
               <Button variant="outline" onClick={onClose}>
-                {t('common.cancel')}
+                取消
               </Button>
               <Button
                 onClick={handleSubmit}
@@ -555,12 +553,12 @@ export default function UploadModal({ isOpen, onClose, onSuccess }: UploadModalP
                 {isSubmitting ? (
                   <>
                     <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    Processing...
+                    处理中...
                   </>
                 ) : (
                   <>
                     <Upload className="h-4 w-4 mr-2" />
-                    {t('upload.startAnalysis')}
+                    开始分析
                   </>
                 )}
               </Button>

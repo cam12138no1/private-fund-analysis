@@ -1,5 +1,6 @@
 'use client'
 
+import { useRef } from 'react'
 import { useLocale, useTranslations } from 'next-intl'
 import { 
   ArrowLeft, 
@@ -13,11 +14,11 @@ import {
   DollarSign,
   Users,
   Zap,
-  Calendar
+  Calendar,
+  FileText
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import * as XLSX from 'xlsx'
 
 interface AnalysisViewProps {
   analysis: any
@@ -27,113 +28,59 @@ interface AnalysisViewProps {
 export default function AnalysisView({ analysis, onBack }: AnalysisViewProps) {
   const t = useTranslations('analysis')
   const locale = useLocale()
+  const reportRef = useRef<HTMLDivElement>(null)
 
-  const handleExport = () => {
-    const wb = XLSX.utils.book_new()
+  const handleExportPdf = async () => {
+    if (!reportRef.current) return
     
-    // Sheet 1: Summary
-    const summaryData = [
-      [t('reportTitle'), ''],
-      [''],
-      [t('company'), analysis.company_name],
-      [t('symbol'), analysis.company_symbol],
-      [t('reportPeriod'), analysis.fiscal_quarter ? `Q${analysis.fiscal_quarter} ${analysis.fiscal_year}` : `FY ${analysis.fiscal_year}`],
-      [t('analysisTime'), new Date(analysis.created_at).toLocaleString(locale === 'zh' ? 'zh-CN' : 'en-US')],
-      [''],
-      [t('oneLineConclusion')],
-      [analysis.one_line_conclusion || ''],
-      [''],
-      [t('investmentCommitteeJudgment')],
-      [t('netImpact'), analysis.final_judgment?.net_impact || ''],
-      [t('confidenceSource'), analysis.final_judgment?.confidence || ''],
-      [t('concerns'), analysis.final_judgment?.concerns || ''],
-      [t('recommendation'), analysis.final_judgment?.recommendation || ''],
-    ]
-    const summarySheet = XLSX.utils.aoa_to_sheet(summaryData)
-    XLSX.utils.book_append_sheet(wb, summarySheet, t('summary'))
+    // Dynamic import html2canvas and jspdf
+    const html2canvas = (await import('html2canvas')).default
+    const { jsPDF } = await import('jspdf')
     
-    // Sheet 2: Results Table
-    if (analysis.results_table?.length > 0) {
-      const resultsData = [
-        [t('resultsVsExpectationsTitle')],
-        [analysis.results_summary || ''],
-        [''],
-        [t('metric'), t('actual'), t('consensus'), t('delta'), t('assessment')],
-        ...analysis.results_table.map((row: any) => [
-          row.metric,
-          row.actual,
-          row.consensus,
-          row.delta,
-          row.assessment,
-        ]),
-        [''],
-        [t('keyExplanation')],
-        [analysis.results_explanation || ''],
-      ]
-      const resultsSheet = XLSX.utils.aoa_to_sheet(resultsData)
-      XLSX.utils.book_append_sheet(wb, resultsSheet, 'Results')
+    const element = reportRef.current
+    const canvas = await html2canvas(element, {
+      scale: 2,
+      useCORS: true,
+      logging: false,
+      backgroundColor: '#f9fafb'
+    })
+    
+    const imgData = canvas.toDataURL('image/png')
+    const pdf = new jsPDF({
+      orientation: 'portrait',
+      unit: 'mm',
+      format: 'a4'
+    })
+    
+    const imgWidth = 210 // A4 width in mm
+    const pageHeight = 297 // A4 height in mm
+    const imgHeight = (canvas.height * imgWidth) / canvas.width
+    let heightLeft = imgHeight
+    let position = 0
+    
+    pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight)
+    heightLeft -= pageHeight
+    
+    while (heightLeft >= 0) {
+      position = heightLeft - imgHeight
+      pdf.addPage()
+      pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight)
+      heightLeft -= pageHeight
     }
     
-    // Sheet 3: Drivers
-    if (analysis.drivers) {
-      const driversData = [
-        [t('driversAnalysis')],
-        [analysis.drivers_summary || ''],
-        [''],
-        [`A. ${t('demandVolume')}`],
-        [t('change'), analysis.drivers.demand?.change || ''],
-        [t('magnitude'), analysis.drivers.demand?.magnitude || ''],
-        [t('reason'), analysis.drivers.demand?.reason || ''],
-        [''],
-        [`B. ${t('monetizationPricing')}`],
-        [t('change'), analysis.drivers.monetization?.change || ''],
-        [t('magnitude'), analysis.drivers.monetization?.magnitude || ''],
-        [t('reason'), analysis.drivers.monetization?.reason || ''],
-        [''],
-        [`C. ${t('internalEfficiency')}`],
-        [t('change'), analysis.drivers.efficiency?.change || ''],
-        [t('magnitude'), analysis.drivers.efficiency?.magnitude || ''],
-        [t('reason'), analysis.drivers.efficiency?.reason || ''],
-      ]
-      const driversSheet = XLSX.utils.aoa_to_sheet(driversData)
-      XLSX.utils.book_append_sheet(wb, driversSheet, 'Drivers')
-    }
-    
-    // Sheet 4: Investment & Risks
-    const investmentData = [
-      [t('investmentAndRoi')],
-      [''],
-      [t('capexChange'), analysis.investment_roi?.capex_change || ''],
-      [t('opexChange'), analysis.investment_roi?.opex_change || ''],
-      [t('investmentDirection'), analysis.investment_roi?.investment_direction || ''],
-      [t('managementCommitment'), analysis.investment_roi?.management_commitment || ''],
-      [''],
-      [t('roiEvidence')],
-      ...(analysis.investment_roi?.roi_evidence?.map((e: string) => [e]) || []),
-      [''],
-      [t('risksAndCheckpoints')],
-      [''],
-      [t('mainRisks')],
-      ...(analysis.sustainability_risks?.main_risks?.map((r: string) => [r]) || []),
-      [''],
-      [t('checkpoints')],
-      ...(analysis.sustainability_risks?.checkpoints?.map((c: string) => [c]) || []),
-    ]
-    const investmentSheet = XLSX.utils.aoa_to_sheet(investmentData)
-    XLSX.utils.book_append_sheet(wb, investmentSheet, 'Investment & Risks')
-    
-    const filename = `${analysis.company_symbol}_${analysis.fiscal_year}${analysis.fiscal_quarter ? `Q${analysis.fiscal_quarter}` : 'FY'}_Analysis.xlsx`
-    XLSX.writeFile(wb, filename)
+    const filename = `${analysis.company_symbol}_${analysis.fiscal_year}${analysis.fiscal_quarter ? `Q${analysis.fiscal_quarter}` : 'FY'}_分析报告.pdf`
+    pdf.save(filename)
   }
 
   const getAssessmentColor = (assessment: string) => {
-    const lower = assessment.toLowerCase()
-    if (lower.includes('beat') || lower.includes('strong')) return 'text-green-600 bg-green-50'
-    if (lower.includes('miss') || lower.includes('shock')) return 'text-red-600 bg-red-50'
+    const lower = (assessment || '').toLowerCase()
+    if (lower.includes('beat') || lower.includes('超预期') || lower.includes('strong') || lower.includes('强')) return 'text-green-600 bg-green-50'
+    if (lower.includes('miss') || lower.includes('不及') || lower.includes('shock') || lower.includes('弱')) return 'text-red-600 bg-red-50'
     return 'text-gray-600 bg-gray-50'
   }
 
   const getDeltaColor = (delta: string) => {
+    if (!delta) return 'text-gray-600'
     if (delta.startsWith('-')) return 'text-red-600'
     if (delta.startsWith('+') || parseFloat(delta) > 0) return 'text-green-600'
     return 'text-gray-600'
@@ -166,361 +113,364 @@ export default function AnalysisView({ analysis, onBack }: AnalysisViewProps) {
             </div>
           </div>
         </div>
-        <Button onClick={handleExport} className="bg-gradient-to-r from-blue-600 to-indigo-600">
-          <Download className="h-4 w-4 mr-2" />
-          {t('exportToExcel')}
+        <Button onClick={handleExportPdf} className="bg-gradient-to-r from-blue-600 to-indigo-600">
+          <FileText className="h-4 w-4 mr-2" />
+          导出PDF
         </Button>
       </div>
 
-      {/* One Line Conclusion */}
-      <Card className="border-0 shadow-sm bg-gradient-to-r from-blue-600 to-indigo-600 text-white overflow-hidden">
-        <CardContent className="p-6">
-          <div className="flex items-start gap-4">
-            <div className="h-10 w-10 rounded-lg bg-white/20 flex items-center justify-center flex-shrink-0">
-              <Target className="h-5 w-5" />
-            </div>
-            <div>
-              <h3 className="text-sm font-medium text-blue-100 mb-2">{t('oneLineConclusion')}</h3>
-              <p className="text-lg font-medium leading-relaxed">
-                {analysis.one_line_conclusion || t('noConclusion')}
-              </p>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Results Table */}
-      {analysis.results_table && analysis.results_table.length > 0 && (
-        <Card className="border-0 shadow-sm">
-          <CardHeader className="pb-2">
-            <div className="flex items-center gap-3">
-              <div className="h-10 w-10 rounded-lg bg-blue-100 flex items-center justify-center">
-                <DollarSign className="h-5 w-5 text-blue-600" />
+      {/* Report Content - wrapped in ref for PDF export */}
+      <div ref={reportRef} className="space-y-6">
+        {/* 一句话结论 */}
+        <Card className="border-0 shadow-sm bg-gradient-to-r from-blue-600 to-indigo-600 text-white overflow-hidden">
+          <CardContent className="p-6">
+            <div className="flex items-start gap-4">
+              <div className="h-10 w-10 rounded-lg bg-white/20 flex items-center justify-center flex-shrink-0">
+                <Target className="h-5 w-5" />
               </div>
               <div>
-                <CardTitle className="text-lg">1) {t('resultsVsExpectationsTitle')}</CardTitle>
-                {analysis.results_summary && (
-                  <p className="text-sm text-gray-500 mt-1">{analysis.results_summary}</p>
-                )}
+                <h3 className="text-sm font-medium text-blue-100 mb-2">一句话结论</h3>
+                <p className="text-lg font-medium leading-relaxed">
+                  {analysis.one_line_conclusion || '暂无结论'}
+                </p>
               </div>
             </div>
-          </CardHeader>
-          <CardContent>
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b border-gray-100">
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">{t('metric')}</th>
-                    <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase">{t('actual')}</th>
-                    <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase">{t('consensus')}</th>
-                    <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase">{t('delta')}</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">{t('assessment')}</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-50">
-                  {analysis.results_table.map((row: any, idx: number) => (
-                    <tr key={idx} className="hover:bg-gray-50 transition-colors">
-                      <td className="px-4 py-4 font-medium text-gray-900">{row.metric}</td>
-                      <td className="px-4 py-4 text-right font-semibold text-gray-900">{row.actual}</td>
-                      <td className="px-4 py-4 text-right text-gray-500">{row.consensus}</td>
-                      <td className={`px-4 py-4 text-right font-semibold ${getDeltaColor(row.delta)}`}>
-                        {row.delta}
-                      </td>
-                      <td className="px-4 py-4">
-                        <span className={`inline-flex px-2.5 py-1 rounded-lg text-xs font-medium ${getAssessmentColor(row.assessment)}`}>
-                          {row.assessment}
-                        </span>
-                      </td>
+          </CardContent>
+        </Card>
+
+        {/* 业绩与市场预期对比 */}
+        {analysis.results_table && analysis.results_table.length > 0 && (
+          <Card className="border-0 shadow-sm">
+            <CardHeader className="pb-2">
+              <div className="flex items-center gap-3">
+                <div className="h-10 w-10 rounded-lg bg-blue-100 flex items-center justify-center">
+                  <DollarSign className="h-5 w-5 text-blue-600" />
+                </div>
+                <div>
+                  <CardTitle className="text-lg">1) 业绩与市场预期对比</CardTitle>
+                  {analysis.results_summary && (
+                    <p className="text-sm text-gray-500 mt-1">{analysis.results_summary}</p>
+                  )}
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-gray-100">
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">指标</th>
+                      <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase">实际值</th>
+                      <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase">市场预期</th>
+                      <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase">差异</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">评估</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            
-            {analysis.results_explanation && (
-              <div className="mt-4 p-4 bg-blue-50 rounded-xl border border-blue-100">
-                <h4 className="font-medium text-blue-900 mb-1">{t('keyExplanation')}</h4>
-                <p className="text-sm text-blue-800">{analysis.results_explanation}</p>
+                  </thead>
+                  <tbody className="divide-y divide-gray-50">
+                    {analysis.results_table.map((row: any, idx: number) => (
+                      <tr key={idx} className="hover:bg-gray-50 transition-colors">
+                        <td className="px-4 py-4 font-medium text-gray-900">{row.metric}</td>
+                        <td className="px-4 py-4 text-right font-semibold text-gray-900">{row.actual}</td>
+                        <td className="px-4 py-4 text-right text-gray-500">{row.consensus}</td>
+                        <td className={`px-4 py-4 text-right font-semibold ${getDeltaColor(row.delta)}`}>
+                          {row.delta}
+                        </td>
+                        <td className="px-4 py-4">
+                          <span className={`inline-flex px-2.5 py-1 rounded-lg text-xs font-medium ${getAssessmentColor(row.assessment)}`}>
+                            {row.assessment}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
-            )}
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Drivers */}
-      {analysis.drivers && (
-        <Card className="border-0 shadow-sm">
-          <CardHeader className="pb-2">
-            <div className="flex items-center gap-3">
-              <div className="h-10 w-10 rounded-lg bg-purple-100 flex items-center justify-center">
-                <Zap className="h-5 w-5 text-purple-600" />
-              </div>
-              <div>
-                <CardTitle className="text-lg">2) {t('driversAnalysis')}</CardTitle>
-                {analysis.drivers_summary && (
-                  <p className="text-sm text-gray-500 mt-1">{analysis.drivers_summary}</p>
-                )}
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-              {/* Demand */}
-              <div className="p-4 bg-gradient-to-br from-green-50 to-emerald-50 rounded-xl border border-green-100">
-                <div className="flex items-center gap-2 mb-3">
-                  <Users className="h-4 w-4 text-green-600" />
-                  <h4 className="font-semibold text-green-900">A. {t('demandVolume')}</h4>
+              
+              {analysis.results_explanation && (
+                <div className="mt-4 p-4 bg-blue-50 rounded-xl border border-blue-100">
+                  <h4 className="font-medium text-blue-900 mb-1">关键解读</h4>
+                  <p className="text-sm text-blue-800">{analysis.results_explanation}</p>
                 </div>
-                <div className="space-y-2 text-sm">
-                  <p className="text-gray-700">
-                    <span className="font-medium text-gray-900">{t('change')}:</span> {analysis.drivers.demand?.change || '-'}
-                  </p>
-                  <p className="text-gray-700">
-                    <span className="font-medium text-gray-900">{t('magnitude')}:</span>
-                    <span className="text-green-600 font-medium"> {analysis.drivers.demand?.magnitude || '-'}</span>
-                  </p>
-                  <p className="text-gray-700">
-                    <span className="font-medium text-gray-900">{t('reason')}:</span> {analysis.drivers.demand?.reason || '-'}
-                  </p>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
+        {/* 增长驱动拆解 */}
+        {analysis.drivers && (
+          <Card className="border-0 shadow-sm">
+            <CardHeader className="pb-2">
+              <div className="flex items-center gap-3">
+                <div className="h-10 w-10 rounded-lg bg-purple-100 flex items-center justify-center">
+                  <Zap className="h-5 w-5 text-purple-600" />
+                </div>
+                <div>
+                  <CardTitle className="text-lg">2) 增长驱动拆解</CardTitle>
+                  {analysis.drivers_summary && (
+                    <p className="text-sm text-gray-500 mt-1">{analysis.drivers_summary}</p>
+                  )}
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                {/* 需求/量 */}
+                <div className="p-4 bg-gradient-to-br from-green-50 to-emerald-50 rounded-xl border border-green-100">
+                  <div className="flex items-center gap-2 mb-3">
+                    <Users className="h-4 w-4 text-green-600" />
+                    <h4 className="font-semibold text-green-900">A. 需求/量</h4>
+                  </div>
+                  <div className="space-y-2 text-sm">
+                    <p className="text-gray-700">
+                      <span className="font-medium text-gray-900">变化：</span> {analysis.drivers.demand?.change || '-'}
+                    </p>
+                    <p className="text-gray-700">
+                      <span className="font-medium text-gray-900">幅度：</span>
+                      <span className="text-green-600 font-medium"> {analysis.drivers.demand?.magnitude || '-'}</span>
+                    </p>
+                    <p className="text-gray-700">
+                      <span className="font-medium text-gray-900">原因：</span> {analysis.drivers.demand?.reason || '-'}
+                    </p>
+                  </div>
+                </div>
+                
+                {/* 变现/单价 */}
+                <div className="p-4 bg-gradient-to-br from-blue-50 to-indigo-50 rounded-xl border border-blue-100">
+                  <div className="flex items-center gap-2 mb-3">
+                    <DollarSign className="h-4 w-4 text-blue-600" />
+                    <h4 className="font-semibold text-blue-900">B. 变现/单价</h4>
+                  </div>
+                  <div className="space-y-2 text-sm">
+                    <p className="text-gray-700">
+                      <span className="font-medium text-gray-900">变化：</span> {analysis.drivers.monetization?.change || '-'}
+                    </p>
+                    <p className="text-gray-700">
+                      <span className="font-medium text-gray-900">幅度：</span>
+                      <span className="text-blue-600 font-medium"> {analysis.drivers.monetization?.magnitude || '-'}</span>
+                    </p>
+                    <p className="text-gray-700">
+                      <span className="font-medium text-gray-900">原因：</span> {analysis.drivers.monetization?.reason || '-'}
+                    </p>
+                  </div>
+                </div>
+                
+                {/* 内部效率 */}
+                <div className="p-4 bg-gradient-to-br from-amber-50 to-orange-50 rounded-xl border border-amber-100">
+                  <div className="flex items-center gap-2 mb-3">
+                    <Zap className="h-4 w-4 text-amber-600" />
+                    <h4 className="font-semibold text-amber-900">C. 内部效率</h4>
+                  </div>
+                  <div className="space-y-2 text-sm">
+                    <p className="text-gray-700">
+                      <span className="font-medium text-gray-900">变化：</span> {analysis.drivers.efficiency?.change || '-'}
+                    </p>
+                    <p className="text-gray-700">
+                      <span className="font-medium text-gray-900">幅度：</span>
+                      <span className="text-amber-600 font-medium"> {analysis.drivers.efficiency?.magnitude || '-'}</span>
+                    </p>
+                    <p className="text-gray-700">
+                      <span className="font-medium text-gray-900">原因：</span> {analysis.drivers.efficiency?.reason || '-'}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* 投入与ROI分析 */}
+        {analysis.investment_roi && (
+          <Card className="border-0 shadow-sm">
+            <CardHeader className="pb-2">
+              <div className="flex items-center gap-3">
+                <div className="h-10 w-10 rounded-lg bg-indigo-100 flex items-center justify-center">
+                  <TrendingUp className="h-5 w-5 text-indigo-600" />
+                </div>
+                <CardTitle className="text-lg">3) 投入与ROI分析</CardTitle>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                <div className="p-4 bg-gray-50 rounded-xl">
+                  <p className="text-xs font-medium text-gray-500 mb-1">资本支出变化</p>
+                  <p className="text-gray-900">{analysis.investment_roi.capex_change || '-'}</p>
+                </div>
+                <div className="p-4 bg-gray-50 rounded-xl">
+                  <p className="text-xs font-medium text-gray-500 mb-1">运营支出变化</p>
+                  <p className="text-gray-900">{analysis.investment_roi.opex_change || '-'}</p>
+                </div>
+                <div className="p-4 bg-gray-50 rounded-xl">
+                  <p className="text-xs font-medium text-gray-500 mb-1">投入方向</p>
+                  <p className="text-gray-900">{analysis.investment_roi.investment_direction || '-'}</p>
+                </div>
+                <div className="p-4 bg-amber-50 rounded-xl border border-amber-100">
+                  <p className="text-xs font-medium text-amber-700 mb-1">管理层承诺</p>
+                  <p className="text-amber-900 font-medium">{analysis.investment_roi.management_commitment || '-'}</p>
                 </div>
               </div>
               
-              {/* Monetization */}
-              <div className="p-4 bg-gradient-to-br from-blue-50 to-indigo-50 rounded-xl border border-blue-100">
-                <div className="flex items-center gap-2 mb-3">
-                  <DollarSign className="h-4 w-4 text-blue-600" />
-                  <h4 className="font-semibold text-blue-900">B. {t('monetizationPricing')}</h4>
+              {analysis.investment_roi.roi_evidence && analysis.investment_roi.roi_evidence.length > 0 && (
+                <div className="p-4 bg-green-50 rounded-xl border border-green-100">
+                  <p className="text-xs font-medium text-green-700 mb-2">ROI证据</p>
+                  <ul className="space-y-1">
+                    {analysis.investment_roi.roi_evidence.map((evidence: string, idx: number) => (
+                      <li key={idx} className="text-sm text-green-800 flex items-start gap-2">
+                        <CheckCircle2 className="h-4 w-4 text-green-600 mt-0.5 flex-shrink-0" />
+                        {evidence}
+                      </li>
+                    ))}
+                  </ul>
                 </div>
-                <div className="space-y-2 text-sm">
-                  <p className="text-gray-700">
-                    <span className="font-medium text-gray-900">{t('change')}:</span> {analysis.drivers.monetization?.change || '-'}
-                  </p>
-                  <p className="text-gray-700">
-                    <span className="font-medium text-gray-900">{t('magnitude')}:</span>
-                    <span className="text-blue-600 font-medium"> {analysis.drivers.monetization?.magnitude || '-'}</span>
-                  </p>
-                  <p className="text-gray-700">
-                    <span className="font-medium text-gray-900">{t('reason')}:</span> {analysis.drivers.monetization?.reason || '-'}
-                  </p>
-                </div>
-              </div>
-              
-              {/* Efficiency */}
-              <div className="p-4 bg-gradient-to-br from-amber-50 to-orange-50 rounded-xl border border-amber-100">
-                <div className="flex items-center gap-2 mb-3">
-                  <Zap className="h-4 w-4 text-amber-600" />
-                  <h4 className="font-semibold text-amber-900">C. {t('internalEfficiency')}</h4>
-                </div>
-                <div className="space-y-2 text-sm">
-                  <p className="text-gray-700">
-                    <span className="font-medium text-gray-900">{t('change')}:</span> {analysis.drivers.efficiency?.change || '-'}
-                  </p>
-                  <p className="text-gray-700">
-                    <span className="font-medium text-gray-900">{t('magnitude')}:</span>
-                    <span className="text-amber-600 font-medium"> {analysis.drivers.efficiency?.magnitude || '-'}</span>
-                  </p>
-                  <p className="text-gray-700">
-                    <span className="font-medium text-gray-900">{t('reason')}:</span> {analysis.drivers.efficiency?.reason || '-'}
-                  </p>
-                </div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      )}
+              )}
+            </CardContent>
+          </Card>
+        )}
 
-      {/* Investment & ROI */}
-      {analysis.investment_roi && (
-        <Card className="border-0 shadow-sm">
-          <CardHeader className="pb-2">
-            <div className="flex items-center gap-3">
-              <div className="h-10 w-10 rounded-lg bg-indigo-100 flex items-center justify-center">
-                <TrendingUp className="h-5 w-5 text-indigo-600" />
-              </div>
-              <CardTitle className="text-lg">3) {t('investmentAndRoi')}</CardTitle>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-              <div className="p-4 bg-gray-50 rounded-xl">
-                <p className="text-xs font-medium text-gray-500 mb-1">{t('capexChange')}</p>
-                <p className="text-gray-900">{analysis.investment_roi.capex_change || '-'}</p>
-              </div>
-              <div className="p-4 bg-gray-50 rounded-xl">
-                <p className="text-xs font-medium text-gray-500 mb-1">{t('opexChange')}</p>
-                <p className="text-gray-900">{analysis.investment_roi.opex_change || '-'}</p>
-              </div>
-              <div className="p-4 bg-gray-50 rounded-xl">
-                <p className="text-xs font-medium text-gray-500 mb-1">{t('investmentDirection')}</p>
-                <p className="text-gray-900">{analysis.investment_roi.investment_direction || '-'}</p>
-              </div>
-              <div className="p-4 bg-amber-50 rounded-xl border border-amber-100">
-                <p className="text-xs font-medium text-amber-700 mb-1">{t('managementCommitment')}</p>
-                <p className="text-amber-900 font-medium">{analysis.investment_roi.management_commitment || '-'}</p>
-              </div>
-            </div>
-            
-            {analysis.investment_roi.roi_evidence && analysis.investment_roi.roi_evidence.length > 0 && (
-              <div className="p-4 bg-green-50 rounded-xl border border-green-100">
-                <p className="text-xs font-medium text-green-700 mb-2">{t('roiEvidence')}</p>
-                <ul className="space-y-1">
-                  {analysis.investment_roi.roi_evidence.map((evidence: string, idx: number) => (
-                    <li key={idx} className="text-sm text-green-800 flex items-start gap-2">
-                      <CheckCircle2 className="h-4 w-4 text-green-600 mt-0.5 flex-shrink-0" />
-                      {evidence}
+        {/* 可持续性与风险 */}
+        {analysis.sustainability_risks && (
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            {/* 可持续驱动 */}
+            <Card className="border-0 shadow-sm">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <TrendingUp className="h-4 w-4 text-green-600" />
+                  可持续驱动
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <ul className="space-y-2">
+                  {analysis.sustainability_risks.sustainable_drivers?.map((driver: string, idx: number) => (
+                    <li key={idx} className="text-sm text-gray-700 flex items-start gap-2">
+                      <span className="w-1.5 h-1.5 bg-green-500 rounded-full mt-2 flex-shrink-0" />
+                      {driver}
                     </li>
                   ))}
                 </ul>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      )}
+              </CardContent>
+            </Card>
 
-      {/* Sustainability & Risks */}
-      {analysis.sustainability_risks && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          {/* Sustainable Drivers */}
+            {/* 主要风险 */}
+            <Card className="border-0 shadow-sm">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <AlertTriangle className="h-4 w-4 text-red-600" />
+                  主要风险
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <ul className="space-y-2">
+                  {analysis.sustainability_risks.main_risks?.map((risk: string, idx: number) => (
+                    <li key={idx} className="text-sm text-gray-700 flex items-start gap-2">
+                      <span className="w-1.5 h-1.5 bg-red-500 rounded-full mt-2 flex-shrink-0" />
+                      {risk}
+                    </li>
+                  ))}
+                </ul>
+              </CardContent>
+            </Card>
+
+            {/* 未来检查点 */}
+            <Card className="border-0 shadow-sm">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Target className="h-4 w-4 text-blue-600" />
+                  未来检查点
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <ul className="space-y-2">
+                  {analysis.sustainability_risks.checkpoints?.map((cp: string, idx: number) => (
+                    <li key={idx} className="text-sm text-gray-700 flex items-start gap-2">
+                      <span className="inline-flex items-center justify-center w-4 h-4 bg-blue-100 text-blue-700 text-[10px] font-bold rounded flex-shrink-0">
+                        {idx + 1}
+                      </span>
+                      {cp}
+                    </li>
+                  ))}
+                </ul>
+              </CardContent>
+            </Card>
+          </div>
+        )}
+
+        {/* 模型影响与估值 */}
+        {analysis.model_impact && (
           <Card className="border-0 shadow-sm">
             <CardHeader className="pb-2">
-              <CardTitle className="text-base flex items-center gap-2">
-                <TrendingUp className="h-4 w-4 text-green-600" />
-                {t('sustainableDrivers')}
-              </CardTitle>
+              <div className="flex items-center gap-3">
+                <div className="h-10 w-10 rounded-lg bg-purple-100 flex items-center justify-center">
+                  <ArrowUpRight className="h-5 w-5 text-purple-600" />
+                </div>
+                <CardTitle className="text-lg">5) 模型影响与估值</CardTitle>
+              </div>
             </CardHeader>
             <CardContent>
-              <ul className="space-y-2">
-                {analysis.sustainability_risks.sustainable_drivers?.map((driver: string, idx: number) => (
-                  <li key={idx} className="text-sm text-gray-700 flex items-start gap-2">
-                    <span className="w-1.5 h-1.5 bg-green-500 rounded-full mt-2 flex-shrink-0" />
-                    {driver}
-                  </li>
-                ))}
-              </ul>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="p-4 bg-gray-50 rounded-xl">
+                  <p className="text-xs font-medium text-gray-500 mb-1">收入假设调整</p>
+                  <p className="text-gray-900">{analysis.model_impact.revenue_adjustment || '-'}</p>
+                </div>
+                <div className="p-4 bg-gray-50 rounded-xl">
+                  <p className="text-xs font-medium text-gray-500 mb-1">资本支出假设调整</p>
+                  <p className="text-gray-900">{analysis.model_impact.capex_adjustment || '-'}</p>
+                </div>
+                <div className="p-4 bg-gray-50 rounded-xl md:col-span-2">
+                  <p className="text-xs font-medium text-gray-500 mb-1">估值变化</p>
+                  <p className="text-gray-900">{analysis.model_impact.valuation_change || '-'}</p>
+                </div>
+                <div className="p-4 bg-purple-50 rounded-xl border border-purple-100 md:col-span-2">
+                  <p className="text-xs font-medium text-purple-700 mb-1">逻辑链</p>
+                  <p className="text-purple-900">{analysis.model_impact.logic_chain || '-'}</p>
+                </div>
+              </div>
             </CardContent>
           </Card>
+        )}
 
-          {/* Risks */}
-          <Card className="border-0 shadow-sm">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-base flex items-center gap-2">
-                <AlertTriangle className="h-4 w-4 text-red-600" />
-                {t('mainRisks')}
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <ul className="space-y-2">
-                {analysis.sustainability_risks.main_risks?.map((risk: string, idx: number) => (
-                  <li key={idx} className="text-sm text-gray-700 flex items-start gap-2">
-                    <span className="w-1.5 h-1.5 bg-red-500 rounded-full mt-2 flex-shrink-0" />
-                    {risk}
-                  </li>
-                ))}
-              </ul>
+        {/* 投委会结论 */}
+        {analysis.final_judgment && (
+          <Card className="border-0 shadow-sm bg-gradient-to-br from-slate-800 to-slate-900 text-white overflow-hidden">
+            <CardContent className="p-6">
+              <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
+                <div className="h-8 w-8 rounded-lg bg-white/10 flex items-center justify-center">
+                  <CheckCircle2 className="h-4 w-4" />
+                </div>
+                6) 投委会结论
+              </h3>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                <div className="p-4 bg-white/10 rounded-xl">
+                  <p className="text-xs font-medium text-slate-300 mb-2">更有信心的点</p>
+                  <p className="text-white">{analysis.final_judgment.confidence || '-'}</p>
+                </div>
+                <div className="p-4 bg-white/10 rounded-xl">
+                  <p className="text-xs font-medium text-slate-300 mb-2">更担心的点</p>
+                  <p className="text-white">{analysis.final_judgment.concerns || '-'}</p>
+                </div>
+              </div>
+              
+              <div className="flex items-center gap-4 p-4 bg-white/10 rounded-xl">
+                <div>
+                  <p className="text-xs font-medium text-slate-300 mb-1">净影响</p>
+                  <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm font-bold ${
+                    analysis.final_judgment.net_impact?.toLowerCase().includes('strong') || analysis.final_judgment.net_impact?.includes('强') ? 'bg-green-500 text-white' :
+                    analysis.final_judgment.net_impact?.toLowerCase().includes('weak') || analysis.final_judgment.net_impact?.includes('弱') ? 'bg-red-500 text-white' :
+                    'bg-slate-600 text-white'
+                  }`}>
+                    {(analysis.final_judgment.net_impact?.toLowerCase().includes('strong') || analysis.final_judgment.net_impact?.includes('强')) && <TrendingUp className="h-3.5 w-3.5" />}
+                    {(analysis.final_judgment.net_impact?.toLowerCase().includes('weak') || analysis.final_judgment.net_impact?.includes('弱')) && <TrendingDown className="h-3.5 w-3.5" />}
+                    {analysis.final_judgment.net_impact || '-'}
+                  </span>
+                </div>
+                <div className="flex-1">
+                  <p className="text-xs font-medium text-slate-300 mb-1">投资建议</p>
+                  <p className="text-white font-medium">{analysis.final_judgment.recommendation || '-'}</p>
+                </div>
+              </div>
             </CardContent>
           </Card>
-
-          {/* Checkpoints */}
-          <Card className="border-0 shadow-sm">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-base flex items-center gap-2">
-                <Target className="h-4 w-4 text-blue-600" />
-                {t('checkpoints')}
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <ul className="space-y-2">
-                {analysis.sustainability_risks.checkpoints?.map((cp: string, idx: number) => (
-                  <li key={idx} className="text-sm text-gray-700 flex items-start gap-2">
-                    <span className="inline-flex items-center justify-center w-4 h-4 bg-blue-100 text-blue-700 text-[10px] font-bold rounded flex-shrink-0">
-                      {idx + 1}
-                    </span>
-                    {cp}
-                  </li>
-                ))}
-              </ul>
-            </CardContent>
-          </Card>
-        </div>
-      )}
-
-      {/* Model Impact */}
-      {analysis.model_impact && (
-        <Card className="border-0 shadow-sm">
-          <CardHeader className="pb-2">
-            <div className="flex items-center gap-3">
-              <div className="h-10 w-10 rounded-lg bg-purple-100 flex items-center justify-center">
-                <ArrowUpRight className="h-5 w-5 text-purple-600" />
-              </div>
-              <CardTitle className="text-lg">5) {t('modelImpact')}</CardTitle>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="p-4 bg-gray-50 rounded-xl">
-                <p className="text-xs font-medium text-gray-500 mb-1">{t('revenueAssumptionAdjustment')}</p>
-                <p className="text-gray-900">{analysis.model_impact.revenue_adjustment || '-'}</p>
-              </div>
-              <div className="p-4 bg-gray-50 rounded-xl">
-                <p className="text-xs font-medium text-gray-500 mb-1">{t('capexAssumptionAdjustment')}</p>
-                <p className="text-gray-900">{analysis.model_impact.capex_adjustment || '-'}</p>
-              </div>
-              <div className="p-4 bg-gray-50 rounded-xl md:col-span-2">
-                <p className="text-xs font-medium text-gray-500 mb-1">{t('valuationChange')}</p>
-                <p className="text-gray-900">{analysis.model_impact.valuation_change || '-'}</p>
-              </div>
-              <div className="p-4 bg-purple-50 rounded-xl border border-purple-100 md:col-span-2">
-                <p className="text-xs font-medium text-purple-700 mb-1">{t('logicChain')}</p>
-                <p className="text-purple-900">{analysis.model_impact.logic_chain || '-'}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Final Judgment */}
-      {analysis.final_judgment && (
-        <Card className="border-0 shadow-sm bg-gradient-to-br from-slate-800 to-slate-900 text-white overflow-hidden">
-          <CardContent className="p-6">
-            <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
-              <div className="h-8 w-8 rounded-lg bg-white/10 flex items-center justify-center">
-                <CheckCircle2 className="h-4 w-4" />
-              </div>
-              6) {t('investmentCommitteeJudgment')}
-            </h3>
-            
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-              <div className="p-4 bg-white/10 rounded-xl">
-                <p className="text-xs font-medium text-slate-300 mb-2">{t('moreConfident')}</p>
-                <p className="text-white">{analysis.final_judgment.confidence || '-'}</p>
-              </div>
-              <div className="p-4 bg-white/10 rounded-xl">
-                <p className="text-xs font-medium text-slate-300 mb-2">{t('moreConcerned')}</p>
-                <p className="text-white">{analysis.final_judgment.concerns || '-'}</p>
-              </div>
-            </div>
-            
-            <div className="flex items-center gap-4 p-4 bg-white/10 rounded-xl">
-              <div>
-                <p className="text-xs font-medium text-slate-300 mb-1">{t('netImpact')}</p>
-                <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm font-bold ${
-                  analysis.final_judgment.net_impact?.toLowerCase().includes('strong') ? 'bg-green-500 text-white' :
-                  analysis.final_judgment.net_impact?.toLowerCase().includes('weak') ? 'bg-red-500 text-white' :
-                  'bg-slate-600 text-white'
-                }`}>
-                  {analysis.final_judgment.net_impact?.toLowerCase().includes('strong') && <TrendingUp className="h-3.5 w-3.5" />}
-                  {analysis.final_judgment.net_impact?.toLowerCase().includes('weak') && <TrendingDown className="h-3.5 w-3.5" />}
-                  {analysis.final_judgment.net_impact || '-'}
-                </span>
-              </div>
-              <div className="flex-1">
-                <p className="text-xs font-medium text-slate-300 mb-1">{t('recommendation')}</p>
-                <p className="text-white font-medium">{analysis.final_judgment.recommendation || '-'}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      )}
+        )}
+      </div>
     </div>
   )
 }
