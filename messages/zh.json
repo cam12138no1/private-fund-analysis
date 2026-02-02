@@ -55,6 +55,7 @@
   "dashboard": {
     "title": "财报分析平台",
     "subtitle": "AI驱动的财报深度分析",
+    "welcomeBack": "欢迎回来",
     "uploadReport": "上传财报",
     "totalReports": "已分析财报",
     "companiesAnalyzed": "覆盖公司",
