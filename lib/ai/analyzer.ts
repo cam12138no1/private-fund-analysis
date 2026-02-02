@@ -419,10 +419,10 @@ export async function analyzeFinancialReport(
   const hasResearchReport = !!researchReportText && researchReportText.length > 100
   
   // Truncate text to avoid token limits
-  // Gemini 2.5 Flash has ~1M token context but OpenRouter may have lower limits
-  // Keep it conservative: ~60k chars for financial (~15k tokens), ~30k for research (~7.5k tokens)
-  const MAX_FINANCIAL_TEXT = 60000
-  const MAX_RESEARCH_TEXT = 30000
+  // Gemini 3 Pro Preview has 1M token context (~4M chars)
+  // Use generous limits: ~200k chars for financial (~50k tokens), ~100k for research (~25k tokens)
+  const MAX_FINANCIAL_TEXT = 200000
+  const MAX_RESEARCH_TEXT = 100000
   
   let truncatedReportText = reportText
   if (reportText.length > MAX_FINANCIAL_TEXT) {
@@ -631,7 +631,7 @@ ${truncatedResearchText}
   }
 
   const response = await openrouter.chat({
-    model: 'google/gemini-2.5-flash',
+    model: 'google/gemini-3-pro-preview',
     messages: [
       {
         role: 'system',
@@ -651,7 +651,7 @@ ${truncatedResearchText}
       },
     },
     temperature: 0.3,
-    max_tokens: 8000,
+    max_tokens: 16000,
   })
 
   const content = response.choices[0]?.message?.content

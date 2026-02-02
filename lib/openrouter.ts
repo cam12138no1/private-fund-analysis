@@ -22,8 +22,8 @@ export class OpenRouterClient {
       console.log(`[OpenRouter] 发送请求到模型: ${params.model}`)
       console.log(`[OpenRouter] 消息总长度: ${totalChars} 字符 (~${Math.round(totalChars / 4)} tokens)`)
       
-      // Check if message is too long (OpenRouter has ~128k token limit for Gemini)
-      if (totalChars > 400000) {
+      // Gemini 3 Pro has 1M token context (~4M chars), but we'll warn at 800k chars
+      if (totalChars > 800000) {
         console.warn(`[OpenRouter] 消息过长 (${totalChars} 字符)，可能超出模型限制`)
       }
       

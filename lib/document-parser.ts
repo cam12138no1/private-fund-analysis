@@ -2,7 +2,8 @@ import pdf from 'pdf-parse'
 import * as XLSX from 'xlsx'
 
 // Maximum text length to send to AI (to avoid token limits)
-const MAX_TEXT_LENGTH = 150000 // ~37k tokens for GPT-4
+// Gemini 3 Pro has 1M token context, so we can use much larger limits
+const MAX_TEXT_LENGTH = 300000 // ~75k tokens
 
 export async function extractTextFromPDF(buffer: Buffer): Promise<string> {
   try {
@@ -31,7 +32,7 @@ export async function extractTextFromPDF(buffer: Buffer): Promise<string> {
     // Truncate if too long
     if (text.length > MAX_TEXT_LENGTH) {
       console.log(`[PDF解析] 文本过长 (${text.length} 字符), 截断至 ${MAX_TEXT_LENGTH} 字符`)
-      text = text.substring(0, MAX_TEXT_LENGTH) + '\n\n[文档内容已截断，仅显示前150,000字符]'
+      text = text.substring(0, MAX_TEXT_LENGTH) + '\n\n[文档内容已截断，仅显示前300,000字符]'
     }
     
     return text
