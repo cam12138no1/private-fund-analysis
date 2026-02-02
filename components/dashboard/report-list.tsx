@@ -26,7 +26,7 @@ export default function ReportList({ onSelectAnalysis, onRefresh }: ReportListPr
     }
   }, [])
 
-  // 当有处理中的项目时自动刷新
+  // Auto refresh when there are processing items
   useEffect(() => {
     if (processingCount > 0) {
       pollRef.current = setInterval(loadReports, 3000)
@@ -43,22 +43,22 @@ export default function ReportList({ onSelectAnalysis, onRefresh }: ReportListPr
 
   const loadReports = async () => {
     try {
-      // 使用 dashboard API，包含所有状态的数据
+      // Use dashboard API with all status data
       const response = await fetch('/api/dashboard?limit=50')
       const data = await response.json()
       
       if (data.analyses) {
-        // 按创建时间排序
+        // Sort by creation time
         const sorted = data.analyses.sort((a: any, b: any) => 
           new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
         )
         setReports(sorted)
         
-        // 统计处理中的数量
+        // Count processing items
         const processing = sorted.filter((r: any) => r.processing).length
         setProcessingCount(processing)
         
-        // 如果处理完成，通知父组件刷新
+        // Notify parent to refresh when processing completes
         if (processing === 0 && processingCount > 0) {
           onRefresh()
         }
@@ -72,9 +72,10 @@ export default function ReportList({ onSelectAnalysis, onRefresh }: ReportListPr
 
   const getNetImpactIcon = (report: any) => {
     const impact = report?.final_judgment?.net_impact || ''
-    if (impact.includes('强')) {
+    // Check for both Chinese and English keywords
+    if (impact.includes('stronger') || impact.includes('Stronger') || impact.includes('强')) {
       return <TrendingUp className="h-4 w-4 text-green-500" />
-    } else if (impact.includes('弱')) {
+    } else if (impact.includes('weaker') || impact.includes('Weaker') || impact.includes('弱')) {
       return <TrendingDown className="h-4 w-4 text-red-500" />
     }
     return <Minus className="h-4 w-4 text-gray-400" />
@@ -85,7 +86,7 @@ export default function ReportList({ onSelectAnalysis, onRefresh }: ReportListPr
       <div className="flex items-center justify-center py-16">
         <div className="flex flex-col items-center gap-3">
           <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
-          <p className="text-sm text-gray-500">加载中...</p>
+          <p className="text-sm text-gray-500">{t('common.loading')}</p>
         </div>
       </div>
     )
@@ -155,7 +156,7 @@ export default function ReportList({ onSelectAnalysis, onRefresh }: ReportListPr
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2">
                 <h4 className="font-semibold text-gray-900 truncate">
-                  {report.company_name || '正在识别...'}
+                  {report.company_name || t('reports.identifying')}
                 </h4>
                 {report.company_symbol && (
                   <span className="text-xs text-gray-400">{report.company_symbol}</span>

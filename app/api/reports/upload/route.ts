@@ -20,6 +20,7 @@ export async function POST(request: NextRequest) {
 
     const formData = await request.formData()
     const file = formData.get('file') as File
+    const category = formData.get('category') as string | null
 
     if (!file) {
       return NextResponse.json({ error: 'No file uploaded' }, { status: 400 })
@@ -29,6 +30,12 @@ export async function POST(request: NextRequest) {
     if (file.type !== 'application/pdf') {
       return NextResponse.json({ error: 'Only PDF files are supported' }, { status: 400 })
     }
+
+    // Validate category
+    const validCategories = ['AI_APPLICATION', 'AI_SUPPLY_CHAIN']
+    const selectedCategory = category && validCategories.includes(category) 
+      ? category as 'AI_APPLICATION' | 'AI_SUPPLY_CHAIN'
+      : null
 
     // Read file buffer
     const buffer = Buffer.from(await file.arrayBuffer())
@@ -46,7 +53,7 @@ export async function POST(request: NextRequest) {
     const metadata = await extractMetadataFromReport(reportText)
     console.log('Extracted metadata:', metadata)
 
-    // 创建处理中的记录，让前端能看到进度
+    // Create processing entry so frontend can see progress
     const processingEntry = analysisStore.add({
       company_name: metadata.company_name,
       company_symbol: metadata.company_symbol,
@@ -56,13 +63,13 @@ export async function POST(request: NextRequest) {
       filing_date: metadata.filing_date,
       created_at: new Date().toISOString(),
       processed: false,
-      processing: true,  // 标记为处理中
+      processing: true,  // Mark as processing
     })
     processingId = processingEntry.id
     console.log('Created processing entry:', processingId)
 
-    // Step 2: Analyze the report
-    console.log('Analyzing report with AI...')
+    // Step 2: Analyze the report with the selected category
+    console.log(`Analyzing report with AI... Category: ${selectedCategory || 'auto-detect'}`)
     const analysis = await analyzeFinancialReport(reportText, {
       company: metadata.company_name,
       symbol: metadata.company_symbol,
@@ -76,9 +83,11 @@ export async function POST(request: NextRequest) {
         eps: metadata.eps || undefined,
         operatingIncome: metadata.operating_income || undefined,
       },
+      // Pass the selected category to override auto-detection
+      category: selectedCategory,
     })
 
-    // 更新记录为已完成
+    // Update record as completed
     const storedAnalysis = analysisStore.update(processingId, {
       processed: true,
       processing: false,
@@ -96,7 +105,7 @@ export async function POST(request: NextRequest) {
   } catch (error: any) {
     console.error('Upload and analyze error:', error)
     
-    // 如果有处理中的记录，标记为错误
+    // If there's a processing record, mark it as error
     if (processingId) {
       analysisStore.update(processingId, {
         processing: false,

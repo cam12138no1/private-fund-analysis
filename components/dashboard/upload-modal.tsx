@@ -2,7 +2,7 @@
 
 import { useState, useCallback } from 'react'
 import { useTranslations } from 'next-intl'
-import { X, Upload, Loader2, FileText, CheckCircle2, AlertCircle, Trash2 } from 'lucide-react'
+import { X, Upload, Loader2, FileText, CheckCircle2, AlertCircle, Trash2, Building2, Cpu } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { toast } from '@/components/ui/toaster'
@@ -20,11 +20,30 @@ interface FileWithStatus {
   error?: string
 }
 
+// Company categories for selection
+const COMPANY_CATEGORIES = {
+  AI_APPLICATION: {
+    name: 'AI Application Companies',
+    nameZh: 'AI应用公司',
+    icon: Building2,
+    color: 'blue',
+    description: 'Microsoft, Google, Amazon, Meta, Salesforce, etc.'
+  },
+  AI_SUPPLY_CHAIN: {
+    name: 'AI Supply Chain Companies',
+    nameZh: 'AI供应链公司',
+    icon: Cpu,
+    color: 'purple',
+    description: 'Nvidia, AMD, TSMC, ASML, etc.'
+  }
+}
+
 export default function UploadModal({ isOpen, onClose, onSuccess }: UploadModalProps) {
   const t = useTranslations()
   const [files, setFiles] = useState<FileWithStatus[]>([])
   const [dragActive, setDragActive] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [selectedCategory, setSelectedCategory] = useState<'AI_APPLICATION' | 'AI_SUPPLY_CHAIN' | null>(null)
 
   if (!isOpen) return null
 
@@ -101,6 +120,15 @@ export default function UploadModal({ isOpen, onClose, onSuccess }: UploadModalP
       return
     }
 
+    if (!selectedCategory) {
+      toast({
+        title: t('common.error'),
+        description: 'Please select a company category',
+        variant: 'destructive',
+      })
+      return
+    }
+
     setIsSubmitting(true)
 
     // Mark all as uploading
@@ -123,6 +151,7 @@ export default function UploadModal({ isOpen, onClose, onSuccess }: UploadModalP
       try {
         const formData = new FormData()
         formData.append('file', fileItem.file)
+        formData.append('category', selectedCategory)
 
         const response = await fetch('/api/reports/upload', {
           method: 'POST',
@@ -163,6 +192,7 @@ export default function UploadModal({ isOpen, onClose, onSuccess }: UploadModalP
 
     // Reset files state and trigger refresh
     setFiles([])
+    setSelectedCategory(null)
     setIsSubmitting(false)
     onSuccess()
   }
@@ -191,6 +221,54 @@ export default function UploadModal({ isOpen, onClose, onSuccess }: UploadModalP
         </div>
 
         <div className="p-6 space-y-5">
+          {/* Company Category Selection */}
+          <div className="space-y-3">
+            <label className="text-sm font-medium text-gray-700">
+              Company Category <span className="text-red-500">*</span>
+            </label>
+            <div className="grid grid-cols-2 gap-3">
+              {Object.entries(COMPANY_CATEGORIES).map(([key, category]) => {
+                const Icon = category.icon
+                const isSelected = selectedCategory === key
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => setSelectedCategory(key as 'AI_APPLICATION' | 'AI_SUPPLY_CHAIN')}
+                    className={`p-4 rounded-xl border-2 transition-all text-left ${
+                      isSelected
+                        ? category.color === 'blue' 
+                          ? 'border-blue-500 bg-blue-50'
+                          : 'border-purple-500 bg-purple-50'
+                        : 'border-gray-200 hover:border-gray-300 bg-white'
+                    }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className={`h-10 w-10 rounded-lg flex items-center justify-center ${
+                        isSelected 
+                          ? category.color === 'blue' ? 'bg-blue-100' : 'bg-purple-100'
+                          : 'bg-gray-100'
+                      }`}>
+                        <Icon className={`h-5 w-5 ${
+                          isSelected 
+                            ? category.color === 'blue' ? 'text-blue-600' : 'text-purple-600'
+                            : 'text-gray-600'
+                        }`} />
+                      </div>
+                      <div>
+                        <p className="font-semibold text-gray-900 text-sm">{category.name}</p>
+                        <p className="text-xs text-gray-500 mt-0.5">{category.description}</p>
+                      </div>
+                    </div>
+                  </button>
+                )
+              })}
+            </div>
+            <p className="text-xs text-gray-500">
+              Select the category to use the appropriate analysis prompt for the company type.
+            </p>
+          </div>
+
           {/* Drop Zone */}
           <div
             onDragEnter={handleDrag}
@@ -320,7 +398,7 @@ export default function UploadModal({ isOpen, onClose, onSuccess }: UploadModalP
             </Button>
             <Button 
               onClick={handleSubmit}
-              disabled={files.length === 0 || isSubmitting}
+              disabled={files.length === 0 || isSubmitting || !selectedCategory}
               className="px-8 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700"
             >
               {isSubmitting ? (

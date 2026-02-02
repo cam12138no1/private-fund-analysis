@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { useTranslations } from 'next-intl'
 import { 
   ArrowLeft, 
   MessageSquarePlus, 
@@ -26,69 +27,75 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import Link from 'next/link'
 
-// 预设评价体系问题分类
+// Preset evaluation category questions
 const EVALUATION_CATEGORIES = {
   ROI: {
-    name: 'ROI评估',
+    name: 'ROI Assessment',
+    nameZh: 'ROI评估',
     icon: TrendingUp,
     color: 'green',
     questions: [
-      'ROI如何体现？具体数据是什么？',
-      '投资回报周期是多久？',
-      '与历史ROI相比有何变化？',
-      '主要投资项目的回报率分别是多少？'
+      'How is ROI reflected? What are the specific figures?',
+      'What is the investment payback period?',
+      'How has ROI changed compared to historical data?',
+      'What are the returns for major investment projects?'
     ]
   },
   EXPENSE_RATIO: {
-    name: '支出收入比',
+    name: 'Expense/Revenue Ratio',
+    nameZh: '支出收入比',
     icon: DollarSign,
     color: 'blue',
     questions: [
-      '支出收入比是多少？如何界定好坏？',
-      'R&D/Revenue比例是多少？与行业平均相比如何？',
-      'S&M/Revenue比例趋势如何？',
-      'G&A费用率是否在合理范围？'
+      'What is the expense/revenue ratio? How to define good vs bad?',
+      'What is the R&D/Revenue ratio? How does it compare to industry average?',
+      'What is the S&M/Revenue trend?',
+      'Is the G&A expense ratio within reasonable range?'
     ]
   },
   CAPEX: {
-    name: 'CapEx分析',
+    name: 'CapEx Analysis',
+    nameZh: 'CapEx分析',
     icon: BarChart3,
     color: 'purple',
     questions: [
-      'CapEx的主要投向是什么？',
-      'CapEx/Revenue比例是多少？',
-      '增长型CapEx vs 维护型CapEx占比？',
-      'CapEx预期回报周期是多久？'
+      'What are the main CapEx investments?',
+      'What is the CapEx/Revenue ratio?',
+      'What is the growth CapEx vs maintenance CapEx split?',
+      'What is the expected CapEx payback period?'
     ]
   },
   PROFITABILITY: {
-    name: '盈利能力',
+    name: 'Profitability',
+    nameZh: '盈利能力',
     icon: Target,
     color: 'amber',
     questions: [
-      '毛利率变化的主要驱动因素？',
-      '营业利润率趋势如何？',
-      '净利率是否有一次性因素影响？',
-      '与竞争对手的盈利能力对比？'
+      'What are the main drivers of gross margin changes?',
+      'What is the operating margin trend?',
+      'Are there one-time factors affecting net margin?',
+      'How does profitability compare to competitors?'
     ]
   },
   CASH_FLOW: {
-    name: '现金流',
+    name: 'Cash Flow',
+    nameZh: '现金流',
     icon: DollarSign,
     color: 'teal',
     questions: [
-      'FCF/Revenue比例是多少？',
-      'FCF/Net Income转化率如何？',
-      '现金转化周期有何变化？',
-      '自由现金流能否覆盖股息和回购？'
+      'What is the FCF/Revenue ratio?',
+      'What is the FCF/Net Income conversion rate?',
+      'How has the cash conversion cycle changed?',
+      'Can free cash flow cover dividends and buybacks?'
     ]
   }
 }
 
-// 公司分类
+// Company categories
 const COMPANY_CATEGORIES = {
   AI_APPLICATION: {
-    name: 'AI应用公司',
+    name: 'AI Application Companies',
+    nameZh: 'AI应用公司',
     icon: Building2,
     color: 'blue',
     companies: [
@@ -105,7 +112,8 @@ const COMPANY_CATEGORIES = {
     ]
   },
   AI_SUPPLY_CHAIN: {
-    name: 'AI供应链公司',
+    name: 'AI Supply Chain Companies',
+    nameZh: 'AI供应链公司',
     icon: Cpu,
     color: 'purple',
     companies: [
@@ -124,6 +132,7 @@ const COMPANY_CATEGORIES = {
 }
 
 export default function CustomQuestionsPage() {
+  const t = useTranslations()
   const [selectedCategory, setSelectedCategory] = useState<'AI_APPLICATION' | 'AI_SUPPLY_CHAIN' | null>(null)
   const [selectedCompany, setSelectedCompany] = useState<any>(null)
   const [questions, setQuestions] = useState<string[]>([''])
@@ -197,12 +206,12 @@ export default function CustomQuestionsPage() {
     const validQuestions = questions.filter(q => q.trim() !== '')
     
     if (!selectedCompany) {
-      setError('请先选择一家公司')
+      setError('Please select a company first')
       return
     }
 
     if (validQuestions.length === 0) {
-      setError('请至少输入一个问题')
+      setError('Please enter at least one question')
       return
     }
 
@@ -229,17 +238,17 @@ export default function CustomQuestionsPage() {
         setQaResult(data)
         loadQAHistory()
       } else {
-        setError(data.error || '提取失败')
+        setError(data.error || 'Extraction failed')
       }
     } catch (error: any) {
       console.error('Extraction error:', error)
-      setError(error.message || '提取过程中出错')
+      setError(error.message || 'Error during extraction')
     } finally {
       setIsExtracting(false)
     }
   }
 
-  // 显示问答结果
+  // Show Q&A results
   if (qaResult) {
     return (
       <div className="min-h-screen bg-gray-50">
@@ -252,7 +261,7 @@ export default function CustomQuestionsPage() {
                   <ArrowLeft className="h-5 w-5" />
                 </Button>
                 <div>
-                  <h1 className="text-2xl font-bold text-gray-900">问题回答结果</h1>
+                  <h1 className="text-2xl font-bold text-gray-900">Question Answers</h1>
                   <p className="text-gray-500 mt-1">
                     {qaResult.company || selectedCompany?.name} ({qaResult.symbol || selectedCompany?.symbol})
                   </p>
@@ -263,7 +272,7 @@ export default function CustomQuestionsPage() {
                 setQuestions([''])
                 setSelectedEvalCategory(null)
               }}>
-                提问新问题
+                Ask New Questions
               </Button>
             </div>
           </div>
@@ -336,8 +345,8 @@ export default function CustomQuestionsPage() {
               </Button>
             </Link>
             <div>
-              <h1 className="text-2xl font-bold text-gray-900">自定义问题与评价体系</h1>
-              <p className="text-gray-500 mt-1">基于财报数据回答您关心的特定问题，支持预设评价体系</p>
+              <h1 className="text-2xl font-bold text-gray-900">{t('customQuestions.title')}</h1>
+              <p className="text-gray-500 mt-1">{t('customQuestions.subtitle')}</p>
             </div>
           </div>
         </div>
@@ -350,7 +359,7 @@ export default function CustomQuestionsPage() {
             {/* Category Selection */}
             <Card className="border-0 shadow-sm">
               <CardHeader>
-                <CardTitle className="text-lg">选择公司</CardTitle>
+                <CardTitle className="text-lg">{t('customQuestions.selectCompany')}</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
                 {/* Category Tabs */}
@@ -364,12 +373,16 @@ export default function CustomQuestionsPage() {
                         onClick={() => handleCategorySelect(key as 'AI_APPLICATION' | 'AI_SUPPLY_CHAIN')}
                         className={`flex-1 p-3 rounded-lg border-2 transition-all ${
                           isSelected
-                            ? `border-${category.color}-500 bg-${category.color}-50`
+                            ? category.color === 'blue' 
+                              ? 'border-blue-500 bg-blue-50'
+                              : 'border-purple-500 bg-purple-50'
                             : 'border-gray-200 hover:border-gray-300'
                         }`}
                       >
                         <Icon className={`h-5 w-5 mx-auto mb-1 ${
-                          isSelected ? `text-${category.color}-600` : 'text-gray-600'
+                          isSelected 
+                            ? category.color === 'blue' ? 'text-blue-600' : 'text-purple-600'
+                            : 'text-gray-600'
                         }`} />
                         <p className="text-xs font-medium text-center">{category.name}</p>
                       </button>
@@ -394,7 +407,7 @@ export default function CustomQuestionsPage() {
                         >
                           <div>
                             <p className="font-medium text-gray-900 text-sm">{company.name}</p>
-                            <p className="text-xs text-gray-500">{company.symbol} · {company.nameZh}</p>
+                            <p className="text-xs text-gray-500">{company.symbol}</p>
                           </div>
                           {isSelected && (
                             <CheckCircle2 className="h-4 w-4 text-blue-600" />
@@ -412,9 +425,9 @@ export default function CustomQuestionsPage() {
               <CardHeader>
                 <CardTitle className="text-lg flex items-center gap-2">
                   <Target className="h-5 w-5 text-gray-600" />
-                  评价体系
+                  {t('customQuestions.evaluationSystem')}
                 </CardTitle>
-                <p className="text-sm text-gray-500">选择预设评价维度快速提问</p>
+                <p className="text-sm text-gray-500">{t('customQuestions.selectPreset')}</p>
               </CardHeader>
               <CardContent className="space-y-2">
                 {Object.entries(EVALUATION_CATEGORIES).map(([key, category]) => {
@@ -426,20 +439,36 @@ export default function CustomQuestionsPage() {
                       onClick={() => handleUseEvalCategory(key)}
                       className={`w-full p-3 rounded-lg border transition-all text-left flex items-center gap-3 ${
                         isSelected
-                          ? `border-${category.color}-500 bg-${category.color}-50`
+                          ? category.color === 'green' ? 'border-green-500 bg-green-50'
+                            : category.color === 'blue' ? 'border-blue-500 bg-blue-50'
+                            : category.color === 'purple' ? 'border-purple-500 bg-purple-50'
+                            : category.color === 'amber' ? 'border-amber-500 bg-amber-50'
+                            : 'border-teal-500 bg-teal-50'
                           : 'border-gray-200 hover:border-gray-300 bg-white'
                       }`}
                     >
                       <div className={`h-8 w-8 rounded-lg flex items-center justify-center ${
-                        isSelected ? `bg-${category.color}-100` : 'bg-gray-100'
+                        isSelected 
+                          ? category.color === 'green' ? 'bg-green-100'
+                            : category.color === 'blue' ? 'bg-blue-100'
+                            : category.color === 'purple' ? 'bg-purple-100'
+                            : category.color === 'amber' ? 'bg-amber-100'
+                            : 'bg-teal-100'
+                          : 'bg-gray-100'
                       }`}>
                         <Icon className={`h-4 w-4 ${
-                          isSelected ? `text-${category.color}-600` : 'text-gray-600'
+                          isSelected 
+                            ? category.color === 'green' ? 'text-green-600'
+                              : category.color === 'blue' ? 'text-blue-600'
+                              : category.color === 'purple' ? 'text-purple-600'
+                              : category.color === 'amber' ? 'text-amber-600'
+                              : 'text-teal-600'
+                            : 'text-gray-600'
                         }`} />
                       </div>
                       <div>
                         <p className="font-medium text-gray-900 text-sm">{category.name}</p>
-                        <p className="text-xs text-gray-500">{category.questions.length} 个问题</p>
+                        <p className="text-xs text-gray-500">{category.questions.length} questions</p>
                       </div>
                     </button>
                   )
@@ -453,7 +482,7 @@ export default function CustomQuestionsPage() {
                 <CardHeader>
                   <CardTitle className="text-lg flex items-center gap-2">
                     <History className="h-5 w-5 text-gray-600" />
-                    历史问答
+                    History
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
@@ -467,7 +496,7 @@ export default function CustomQuestionsPage() {
                           {item.company_name || item.companySymbol}
                         </p>
                         <p className="text-xs text-gray-500 mt-1 truncate">
-                          {item.questions?.[0] || '自定义问题'}
+                          {item.questions?.[0] || 'Custom question'}
                         </p>
                       </div>
                     ))}
@@ -484,11 +513,11 @@ export default function CustomQuestionsPage() {
                 <div className="flex items-center justify-between">
                   <CardTitle className="text-lg flex items-center gap-2">
                     <MessageSquarePlus className="h-5 w-5 text-gray-600" />
-                    您的问题
+                    {t('customQuestions.yourQuestions')}
                   </CardTitle>
                   <Button onClick={handleAddQuestion} size="sm" variant="outline">
                     <Plus className="h-4 w-4 mr-1" />
-                    添加问题
+                    {t('customQuestions.addQuestion')}
                   </Button>
                 </div>
                 {selectedEvalCategory && (
@@ -504,7 +533,7 @@ export default function CustomQuestionsPage() {
                       <Textarea
                         value={question}
                         onChange={(e) => handleQuestionChange(index, e.target.value)}
-                        placeholder={`问题 ${index + 1}：例如 "ROI如何体现？具体数据是什么？"`}
+                        placeholder={`Question ${index + 1}: e.g. "How is ROI reflected? What are the specific figures?"`}
                         rows={2}
                         className="resize-none"
                       />
@@ -537,12 +566,12 @@ export default function CustomQuestionsPage() {
                     {isExtracting ? (
                       <>
                         <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-                        AI分析中...
+                        {t('customQuestions.analyzing')}
                       </>
                     ) : (
                       <>
                         <MessageSquarePlus className="mr-2 h-5 w-5" />
-                        获取答案
+                        {t('customQuestions.getAnswers')}
                       </>
                     )}
                   </Button>
@@ -558,13 +587,13 @@ export default function CustomQuestionsPage() {
                     <Lightbulb className="h-5 w-5 text-blue-600" />
                   </div>
                   <div>
-                    <h4 className="font-semibold text-blue-900 mb-2">提问技巧</h4>
+                    <h4 className="font-semibold text-blue-900 mb-2">{t('customQuestions.tips')}</h4>
                     <ul className="text-sm text-blue-800 space-y-1">
-                      <li>• 问题要具体明确，包含关键指标名称</li>
-                      <li>• 可以问数据对比、趋势判断、好坏标准</li>
-                      <li>• 例如："毛利率YoY变化多少？主要原因是什么？"</li>
-                      <li>• 例如："CapEx/收入比是多少？行业平均水平是？"</li>
-                      <li>• 使用左侧评价体系可快速获取标准化分析</li>
+                      <li>• Be specific and include key metric names</li>
+                      <li>• Ask about data comparisons, trends, and benchmarks</li>
+                      <li>• Example: "What is the gross margin YoY change? What are the main drivers?"</li>
+                      <li>• Example: "What is the CapEx/Revenue ratio? What is the industry average?"</li>
+                      <li>• Use the evaluation system on the left for standardized analysis</li>
                     </ul>
                   </div>
                 </div>

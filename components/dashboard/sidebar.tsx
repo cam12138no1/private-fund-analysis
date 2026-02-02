@@ -13,10 +13,10 @@ export default function Sidebar() {
 
   const navigation = [
     { name: t('nav.dashboard'), href: '/dashboard', icon: LayoutDashboard },
-    { name: '汇总表', href: '/dashboard/summary', icon: TableProperties, badge: 'NEW' },
+    { name: t('nav.summary'), href: '/dashboard/summary', icon: TableProperties, badge: 'NEW' },
     { name: t('nav.reports'), href: '/dashboard/reports', icon: FileText },
-    { name: '横向对比', href: '/dashboard/comparison', icon: GitCompare, badge: 'NEW' },
-    { name: '自定义问题', href: '/dashboard/custom-questions', icon: MessageSquarePlus, badge: 'NEW' },
+    { name: t('nav.comparison'), href: '/dashboard/comparison', icon: GitCompare, badge: 'NEW' },
+    { name: t('nav.customQuestions'), href: '/dashboard/custom-questions', icon: MessageSquarePlus, badge: 'NEW' },
     { name: t('nav.settings'), href: '/dashboard/settings', icon: Settings },
   ]
 

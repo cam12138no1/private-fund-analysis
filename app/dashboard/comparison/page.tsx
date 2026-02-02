@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { useTranslations } from 'next-intl'
 import { 
   ArrowLeft, 
   GitCompare, 
@@ -20,11 +21,11 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import Link from 'next/link'
 
-// 公司分类配置 - 按用户指定
+// Company categories - as specified by user
 const COMPANY_CATEGORIES = {
   AI_APPLICATION: {
-    name: 'AI应用公司',
-    nameEn: 'AI Application Companies',
+    name: 'AI Application Companies',
+    nameZh: 'AI应用公司',
     icon: Building2,
     color: 'blue',
     bgColor: 'bg-blue-50',
@@ -44,8 +45,8 @@ const COMPANY_CATEGORIES = {
     ]
   },
   AI_SUPPLY_CHAIN: {
-    name: 'AI供应链公司',
-    nameEn: 'AI Supply Chain Companies',
+    name: 'AI Supply Chain Companies',
+    nameZh: 'AI供应链公司',
     icon: Cpu,
     color: 'purple',
     bgColor: 'bg-purple-50',
@@ -71,6 +72,7 @@ const COMPANY_CATEGORIES = {
 }
 
 export default function ComparisonPage() {
+  const t = useTranslations()
   const router = useRouter()
   const [selectedCategory, setSelectedCategory] = useState<'AI_APPLICATION' | 'AI_SUPPLY_CHAIN' | null>(null)
   const [selectedCompanies, setSelectedCompanies] = useState<string[]>([])
@@ -123,7 +125,7 @@ export default function ComparisonPage() {
 
   const handleCompare = async () => {
     if (selectedCompanies.length < 2) {
-      setError('请至少选择2家公司进行对比')
+      setError(t('comparison.minTwoCompanies'))
       return
     }
 
@@ -147,17 +149,17 @@ export default function ComparisonPage() {
         setComparisonResult(data.comparison_content)
         loadComparisonHistory()
       } else {
-        setError(data.error || '对比分析失败')
+        setError(data.error || t('comparison.comparisonFailed'))
       }
     } catch (error: any) {
       console.error('Comparison error:', error)
-      setError(error.message || '对比过程中出错')
+      setError(error.message || t('comparison.comparisonFailed'))
     } finally {
       setIsComparing(false)
     }
   }
 
-  // 显示对比结果
+  // Show comparison result
   if (comparisonResult) {
     const categoryInfo = selectedCategory ? COMPANY_CATEGORIES[selectedCategory] : null
     
@@ -172,9 +174,9 @@ export default function ComparisonPage() {
                   <ArrowLeft className="h-5 w-5" />
                 </Button>
                 <div>
-                  <h1 className="text-2xl font-bold text-gray-900">横向对比分析报告</h1>
+                  <h1 className="text-2xl font-bold text-gray-900">{t('comparison.result')}</h1>
                   <p className="text-gray-500 mt-1">
-                    {categoryInfo?.name} · {selectedCompanies.length} 家公司
+                    {categoryInfo?.name} · {selectedCompanies.length} {t('comparison.companies')}
                   </p>
                 </div>
               </div>
@@ -184,11 +186,11 @@ export default function ComparisonPage() {
                   setSelectedCompanies([])
                 }}>
                   <RefreshCw className="h-4 w-4 mr-2" />
-                  重新对比
+                  {t('comparison.recompare')}
                 </Button>
                 <Button variant="outline">
                   <Download className="h-4 w-4 mr-2" />
-                  导出报告
+                  {t('common.export')}
                 </Button>
               </div>
             </div>
@@ -209,7 +211,7 @@ export default function ComparisonPage() {
                       : 'bg-purple-100 text-purple-800'
                   }`}
                 >
-                  {symbol} · {company?.nameZh || company?.name}
+                  {symbol} · {company?.name}
                 </span>
               )
             })}
@@ -295,8 +297,8 @@ export default function ComparisonPage() {
               </Button>
             </Link>
             <div>
-              <h1 className="text-2xl font-bold text-gray-900">多公司横向对比</h1>
-              <p className="text-gray-500 mt-1">选择同赛道公司进行财报横向对比分析</p>
+              <h1 className="text-2xl font-bold text-gray-900">{t('comparison.title')}</h1>
+              <p className="text-gray-500 mt-1">{t('comparison.subtitle')}</p>
             </div>
           </div>
         </div>
@@ -311,7 +313,7 @@ export default function ComparisonPage() {
               <CardHeader>
                 <CardTitle className="text-lg flex items-center gap-2">
                   <BarChart3 className="h-5 w-5 text-gray-600" />
-                  选择赛道
+                  {t('comparison.selectCategory')}
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
@@ -340,7 +342,7 @@ export default function ComparisonPage() {
                           <p className={`font-semibold ${isSelected ? 'text-gray-900' : 'text-gray-900'}`}>
                             {category.name}
                           </p>
-                          <p className="text-sm text-gray-500">{category.companies.length} 家公司</p>
+                          <p className="text-sm text-gray-500">{category.companies.length} companies</p>
                         </div>
                       </div>
                     </button>
@@ -354,18 +356,18 @@ export default function ComparisonPage() {
               <Card className="border-0 shadow-sm">
                 <CardHeader>
                   <div className="flex items-center justify-between">
-                    <CardTitle className="text-lg">选择公司</CardTitle>
+                    <CardTitle className="text-lg">{t('comparison.selectCompanies')}</CardTitle>
                     <div className="flex gap-2">
                       <Button variant="outline" size="sm" onClick={handleSelectAll}>
-                        全选
+                        Select All
                       </Button>
                       <Button variant="outline" size="sm" onClick={handleClearAll}>
-                        清空
+                        Clear
                       </Button>
                     </div>
                   </div>
                   <p className="text-sm text-gray-500 mt-1">
-                    已选择 {selectedCompanies.length} 家公司
+                    {t('comparison.selectedCount', { count: selectedCompanies.length })}
                   </p>
                 </CardHeader>
                 <CardContent>
@@ -385,7 +387,7 @@ export default function ComparisonPage() {
                         >
                           <div>
                             <p className="font-medium text-gray-900">{company.name}</p>
-                            <p className="text-sm text-gray-500">{company.symbol} · {company.nameZh}</p>
+                            <p className="text-sm text-gray-500">{company.symbol}</p>
                           </div>
                           {isSelected && (
                             <CheckCircle2 className={`h-5 w-5 ${categoryInfo.textColor}`} />
@@ -409,12 +411,12 @@ export default function ComparisonPage() {
                     {isComparing ? (
                       <>
                         <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                        分析中...
+                        {t('comparison.comparing')}
                       </>
                     ) : (
                       <>
                         <GitCompare className="h-4 w-4 mr-2" />
-                        开始对比分析 ({selectedCompanies.length})
+                        {t('comparison.startComparison')} ({selectedCompanies.length})
                       </>
                     )}
                   </Button>
@@ -426,7 +428,7 @@ export default function ComparisonPage() {
             {comparisonHistory.length > 0 && (
               <Card className="border-0 shadow-sm">
                 <CardHeader>
-                  <CardTitle className="text-lg">历史对比</CardTitle>
+                  <CardTitle className="text-lg">History</CardTitle>
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-2 max-h-60 overflow-y-auto">
@@ -437,10 +439,10 @@ export default function ComparisonPage() {
                         className="w-full p-3 rounded-lg border border-gray-200 hover:border-gray-300 bg-white text-left"
                       >
                         <p className="font-medium text-gray-900 text-sm">
-                          {item.category === 'AI_APPLICATION' ? 'AI应用公司' : 'AI供应链公司'}
+                          {item.category === 'AI_APPLICATION' ? 'AI Application Companies' : 'AI Supply Chain Companies'}
                         </p>
                         <p className="text-xs text-gray-500 mt-1">
-                          {new Date(item.created_at).toLocaleDateString('zh-CN')}
+                          {new Date(item.created_at).toLocaleDateString()}
                         </p>
                       </button>
                     ))}
@@ -458,21 +460,22 @@ export default function ComparisonPage() {
                   <div className="h-20 w-20 rounded-full bg-gradient-to-br from-blue-100 to-indigo-100 flex items-center justify-center mx-auto mb-6">
                     <GitCompare className="h-10 w-10 text-blue-600" />
                   </div>
-                  <h3 className="text-xl font-semibold text-gray-900 mb-3">选择公司开始对比</h3>
+                  <h3 className="text-xl font-semibold text-gray-900 mb-3">Select companies to compare</h3>
                   <p className="text-gray-500 max-w-md mx-auto mb-6">
-                    从左侧选择赛道和公司，系统将基于最新财报数据生成横向对比分析报告，
-                    包括关键指标对比表格、竞争优势分析和投资建议排序。
+                    Choose a category and select companies from the left panel. The system will generate 
+                    a comprehensive comparison report based on the latest financial data, including 
+                    key metrics comparison, competitive analysis, and investment recommendations.
                   </p>
                   <div className="grid grid-cols-2 gap-4 max-w-sm mx-auto text-left">
                     <div className="p-3 bg-blue-50 rounded-lg">
                       <Building2 className="h-5 w-5 text-blue-600 mb-2" />
-                      <p className="text-sm font-medium text-blue-900">AI应用公司</p>
-                      <p className="text-xs text-blue-700">10家科技巨头</p>
+                      <p className="text-sm font-medium text-blue-900">{t('comparison.aiApplication')}</p>
+                      <p className="text-xs text-blue-700">10 tech giants</p>
                     </div>
                     <div className="p-3 bg-purple-50 rounded-lg">
                       <Cpu className="h-5 w-5 text-purple-600 mb-2" />
-                      <p className="text-sm font-medium text-purple-900">AI供应链公司</p>
-                      <p className="text-xs text-purple-700">14家基础设施</p>
+                      <p className="text-sm font-medium text-purple-900">{t('comparison.aiSupplyChain')}</p>
+                      <p className="text-xs text-purple-700">14 infrastructure</p>
                     </div>
                   </div>
                 </CardContent>
@@ -483,10 +486,10 @@ export default function ComparisonPage() {
               <Card className="border-0 shadow-sm h-full flex items-center justify-center min-h-[500px]">
                 <CardContent className="text-center py-12">
                   <Loader2 className="h-16 w-16 text-blue-600 animate-spin mx-auto mb-6" />
-                  <h3 className="text-xl font-semibold text-gray-900 mb-3">正在生成对比分析...</h3>
+                  <h3 className="text-xl font-semibold text-gray-900 mb-3">Generating comparison analysis...</h3>
                   <p className="text-gray-500 max-w-md mx-auto">
-                    AI正在分析 {selectedCompanies.length} 家公司的财报数据，
-                    生成详细的横向对比报告，请稍候...
+                    AI is analyzing financial data from {selectedCompanies.length} companies 
+                    to generate a detailed comparison report. Please wait...
                   </p>
                   <div className="flex flex-wrap justify-center gap-2 mt-6">
                     {selectedCompanies.map(symbol => (
