@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useMemo } from 'react'
+import { useTranslations, useLocale } from 'next-intl'
 import { 
   TrendingUp, 
   TrendingDown, 
@@ -52,7 +53,7 @@ interface CoreConclusion {
   conclusion: string
   keyDriver: string
   keyRisk: string
-  netImpact: '更强' | '更弱' | '不变' | '-'
+  netImpact: 'Stronger' | 'Weaker' | 'Unchanged' | '-'
   recommendation: string
   checkpoint: string
   analysisDate: string
@@ -61,7 +62,7 @@ interface CoreConclusion {
 type SortField = 'company' | 'period' | 'beatMiss' | 'netImpact' | 'analysisDate'
 type SortDirection = 'asc' | 'desc'
 
-function extractCoreConclusions(analysis: AnalysisSummary): CoreConclusion {
+function extractCoreConclusions(analysis: AnalysisSummary, locale: string): CoreConclusion {
   const conclusion = analysis.one_line_conclusion || ''
   
   let beatMiss: CoreConclusion['beatMiss'] = '-'
@@ -84,9 +85,9 @@ function extractCoreConclusions(analysis: AnalysisSummary): CoreConclusion {
 
   const netImpactRaw = analysis.final_judgment?.net_impact || ''
   let netImpact: CoreConclusion['netImpact'] = '-'
-  if (/强|strong/i.test(netImpactRaw)) netImpact = '更强'
-  else if (/弱|weak/i.test(netImpactRaw)) netImpact = '更弱'
-  else if (netImpactRaw) netImpact = '不变'
+  if (/强|strong/i.test(netImpactRaw)) netImpact = 'Stronger'
+  else if (/弱|weak/i.test(netImpactRaw)) netImpact = 'Weaker'
+  else if (netImpactRaw) netImpact = 'Unchanged'
 
   let recommendation = analysis.final_judgment?.recommendation || ''
   if (recommendation.length > 50) recommendation = recommendation.substring(0, 47) + '...'
@@ -108,11 +109,13 @@ function extractCoreConclusions(analysis: AnalysisSummary): CoreConclusion {
     netImpact,
     recommendation,
     checkpoint,
-    analysisDate: new Date(analysis.created_at).toLocaleDateString('zh-CN'),
+    analysisDate: new Date(analysis.created_at).toLocaleDateString(locale === 'zh' ? 'zh-CN' : 'en-US'),
   }
 }
 
 export default function SummaryPage() {
+  const t = useTranslations('summary')
+  const locale = useLocale()
   const [analyses, setAnalyses] = useState<AnalysisSummary[]>([])
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
@@ -141,8 +144,8 @@ export default function SummaryPage() {
   }
 
   const coreConclusions = useMemo(() => {
-    return analyses.map(extractCoreConclusions)
-  }, [analyses])
+    return analyses.map(a => extractCoreConclusions(a, locale))
+  }, [analyses, locale])
 
   const filteredAndSorted = useMemo(() => {
     let result = [...coreConclusions]
@@ -203,7 +206,7 @@ export default function SummaryPage() {
   const exportToExcel = () => {
     const wb = XLSX.utils.book_new()
 
-    const headerRow = ['公司', '代码', '报告期', 'Beat/Miss', '一句话结论', '核心驱动', '核心风险', '净影响', '投资建议', '检查点', '分析日期']
+    const headerRow = [t('company'), t('symbol'), t('period'), 'Beat/Miss', t('oneLineConclusion'), t('keyDriver'), t('keyRisk'), t('netImpact'), t('recommendation'), t('checkpoint'), t('date')]
     const dataRows = filteredAndSorted.map(c => [
       c.company, c.symbol, c.period, c.beatMiss, c.conclusion,
       c.keyDriver, c.keyRisk, c.netImpact, c.recommendation, c.checkpoint, c.analysisDate,
@@ -212,11 +215,11 @@ export default function SummaryPage() {
     const ws = XLSX.utils.aoa_to_sheet([headerRow, ...dataRows])
     ws['!cols'] = [
       { wch: 16 }, { wch: 8 }, { wch: 11 }, { wch: 9 }, { wch: 45 },
-      { wch: 35 }, { wch: 30 }, { wch: 8 }, { wch: 30 }, { wch: 25 }, { wch: 11 },
+      { wch: 35 }, { wch: 30 }, { wch: 10 }, { wch: 30 }, { wch: 25 }, { wch: 11 },
     ]
 
-    XLSX.utils.book_append_sheet(wb, ws, '核心结论')
-    XLSX.writeFile(wb, `财报核心结论_${new Date().toISOString().split('T')[0]}.xlsx`)
+    XLSX.utils.book_append_sheet(wb, ws, t('coreConclusions'))
+    XLSX.writeFile(wb, `Core_Conclusions_${new Date().toISOString().split('T')[0]}.xlsx`)
   }
 
   const SortIcon = ({ field }: { field: SortField }) => {
@@ -249,10 +252,10 @@ export default function SummaryPage() {
         <div className="flex items-center justify-between gap-4">
           {/* Left: Title & Stats */}
           <div className="flex items-center gap-6">
-            <h1 className="text-lg font-semibold text-gray-900">核心结论</h1>
+            <h1 className="text-lg font-semibold text-gray-900">{t('title')}</h1>
             <div className="flex items-center gap-4 text-xs">
               <span className="text-gray-500">
-                共 <span className="font-semibold text-gray-900">{filteredAndSorted.length}</span> 条
+                {t('total')} <span className="font-semibold text-gray-900">{filteredAndSorted.length}</span> {t('items')}
               </span>
               <span className="flex items-center gap-1">
                 <span className="w-2 h-2 rounded-full bg-green-500" />
@@ -272,7 +275,7 @@ export default function SummaryPage() {
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
               <input
                 type="text"
-                placeholder="搜索公司..."
+                placeholder={t('searchCompany')}
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="pl-8 pr-3 py-1.5 text-xs border border-gray-200 rounded-md w-40 focus:outline-none focus:ring-1 focus:ring-emerald-500 focus:border-emerald-500"
@@ -296,16 +299,16 @@ export default function SummaryPage() {
               onChange={(e) => setFilterNetImpact(e.target.value)}
               className="px-2 py-1.5 text-xs border border-gray-200 rounded-md bg-white focus:outline-none focus:ring-1 focus:ring-emerald-500"
             >
-              <option value="">净影响</option>
-              <option value="更强">更强</option>
-              <option value="更弱">更弱</option>
-              <option value="不变">不变</option>
+              <option value="">{t('netImpact')}</option>
+              <option value="Stronger">{t('stronger')}</option>
+              <option value="Weaker">{t('weaker')}</option>
+              <option value="Unchanged">{t('unchanged')}</option>
             </select>
 
             {hasFilters && (
               <Button variant="ghost" size="sm" onClick={clearFilters} className="h-7 px-2 text-xs text-gray-500">
                 <X className="h-3 w-3 mr-1" />
-                清除
+                {t('clear')}
               </Button>
             )}
 
@@ -317,7 +320,7 @@ export default function SummaryPage() {
 
             <Button size="sm" onClick={exportToExcel} disabled={filteredAndSorted.length === 0} className="h-7 px-3 text-xs bg-emerald-600 hover:bg-emerald-700">
               <Download className="h-3.5 w-3.5 mr-1" />
-              导出
+              {t('export')}
             </Button>
           </div>
         </div>
@@ -334,7 +337,7 @@ export default function SummaryPage() {
                 onClick={() => handleSort('company')}
               >
                 <div className="flex items-center gap-1">
-                  公司 <SortIcon field="company" />
+                  {t('company')} <SortIcon field="company" />
                 </div>
               </th>
               <th 
@@ -342,7 +345,7 @@ export default function SummaryPage() {
                 onClick={() => handleSort('period')}
               >
                 <div className="flex items-center justify-center gap-1">
-                  报告期 <SortIcon field="period" />
+                  {t('period')} <SortIcon field="period" />
                 </div>
               </th>
               <th 
@@ -354,34 +357,34 @@ export default function SummaryPage() {
                 </div>
               </th>
               <th className="px-3 py-2 text-left font-medium text-gray-700 border-r border-gray-200 min-w-[280px]">
-                一句话结论
+                {t('oneLineConclusion')}
               </th>
               <th className="px-3 py-2 text-left font-medium text-gray-700 border-r border-gray-200 min-w-[200px]">
-                核心驱动
+                {t('keyDriver')}
               </th>
               <th className="px-3 py-2 text-left font-medium text-gray-700 border-r border-gray-200 min-w-[180px]">
-                核心风险
+                {t('keyRisk')}
               </th>
               <th 
-                className="px-3 py-2 text-center font-medium text-gray-700 border-r border-gray-200 cursor-pointer hover:bg-gray-200 select-none w-20"
+                className="px-3 py-2 text-center font-medium text-gray-700 border-r border-gray-200 cursor-pointer hover:bg-gray-200 select-none w-24"
                 onClick={() => handleSort('netImpact')}
               >
                 <div className="flex items-center justify-center gap-1">
-                  净影响 <SortIcon field="netImpact" />
+                  {t('netImpact')} <SortIcon field="netImpact" />
                 </div>
               </th>
               <th className="px-3 py-2 text-left font-medium text-gray-700 border-r border-gray-200 min-w-[180px]">
-                投资建议
+                {t('recommendation')}
               </th>
               <th className="px-3 py-2 text-left font-medium text-gray-700 border-r border-gray-200 min-w-[150px]">
-                检查点
+                {t('checkpoint')}
               </th>
               <th 
                 className="px-3 py-2 text-center font-medium text-gray-700 cursor-pointer hover:bg-gray-200 select-none w-24"
                 onClick={() => handleSort('analysisDate')}
               >
                 <div className="flex items-center justify-center gap-1">
-                  日期 <SortIcon field="analysisDate" />
+                  {t('date')} <SortIcon field="analysisDate" />
                 </div>
               </th>
             </tr>
@@ -392,89 +395,61 @@ export default function SummaryPage() {
             {filteredAndSorted.length === 0 ? (
               <tr>
                 <td colSpan={10} className="px-4 py-12 text-center text-gray-500">
-                  {hasFilters ? '没有符合条件的数据' : '暂无分析数据，上传财报后自动生成'}
+                  {hasFilters ? t('noMatchingData') : t('noDataYet')}
                 </td>
               </tr>
             ) : (
               filteredAndSorted.map((row, idx) => (
                 <tr 
-                  key={row.id} 
-                  className={`border-b border-gray-100 hover:bg-blue-50/50 ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}`}
+                  key={row.id}
+                  className={`border-b border-gray-100 hover:bg-blue-50/50 transition-colors ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}`}
                 >
-                  {/* 公司 - Sticky */}
-                  <td className={`px-3 py-2 border-r border-gray-100 sticky left-0 z-10 ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}>
-                    <div className="flex items-center gap-2">
-                      <div className="w-6 h-6 rounded bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white text-[10px] font-bold flex-shrink-0">
-                        {row.symbol.slice(0, 2)}
-                      </div>
-                      <div className="min-w-0">
-                        <div className="font-medium text-gray-900 truncate">{row.company}</div>
-                        <div className="text-[10px] text-gray-400">{row.symbol}</div>
-                      </div>
-                    </div>
+                  <td className="px-3 py-2.5 sticky left-0 bg-inherit border-r border-gray-100 z-10">
+                    <div className="font-medium text-gray-900">{row.company}</div>
+                    <div className="text-gray-500 text-[10px]">{row.symbol}</div>
                   </td>
-
-                  {/* 报告期 */}
-                  <td className="px-3 py-2 text-center border-r border-gray-100">
-                    <span className="inline-block px-1.5 py-0.5 bg-gray-100 rounded text-gray-600 text-[11px]">
-                      {row.period}
-                    </span>
+                  <td className="px-3 py-2.5 text-center border-r border-gray-100 text-gray-700">
+                    {row.period}
                   </td>
-
-                  {/* Beat/Miss */}
-                  <td className="px-3 py-2 text-center border-r border-gray-100">
-                    <span className={`inline-block px-2 py-0.5 rounded text-[11px] font-semibold ${
+                  <td className="px-3 py-2.5 text-center border-r border-gray-100">
+                    <span className={`inline-flex items-center justify-center w-14 py-0.5 rounded text-[10px] font-semibold ${
                       row.beatMiss === 'Beat' ? 'bg-green-100 text-green-700' :
                       row.beatMiss === 'Miss' ? 'bg-red-100 text-red-700' :
-                      row.beatMiss === 'Inline' ? 'bg-gray-100 text-gray-600' :
-                      'text-gray-400'
+                      row.beatMiss === 'Inline' ? 'bg-gray-100 text-gray-700' :
+                      'bg-gray-50 text-gray-400'
                     }`}>
                       {row.beatMiss}
                     </span>
                   </td>
-
-                  {/* 结论 */}
-                  <td className="px-3 py-2 border-r border-gray-100">
-                    <span className="text-gray-700 leading-relaxed">{row.conclusion || '-'}</span>
+                  <td className="px-3 py-2.5 border-r border-gray-100 text-gray-700 leading-relaxed">
+                    {row.conclusion || '-'}
                   </td>
-
-                  {/* 核心驱动 */}
-                  <td className="px-3 py-2 border-r border-gray-100">
-                    <span className="text-gray-600">{row.keyDriver || '-'}</span>
+                  <td className="px-3 py-2.5 border-r border-gray-100 text-gray-600">
+                    {row.keyDriver || '-'}
                   </td>
-
-                  {/* 核心风险 */}
-                  <td className="px-3 py-2 border-r border-gray-100">
-                    <span className="text-gray-600">{row.keyRisk || '-'}</span>
+                  <td className="px-3 py-2.5 border-r border-gray-100 text-gray-600">
+                    {row.keyRisk || '-'}
                   </td>
-
-                  {/* 净影响 */}
-                  <td className="px-3 py-2 text-center border-r border-gray-100">
-                    <span className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[11px] font-medium ${
-                      row.netImpact === '更强' ? 'bg-green-50 text-green-600' :
-                      row.netImpact === '更弱' ? 'bg-red-50 text-red-600' :
-                      row.netImpact === '不变' ? 'bg-gray-50 text-gray-500' :
-                      'text-gray-400'
+                  <td className="px-3 py-2.5 text-center border-r border-gray-100">
+                    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold ${
+                      row.netImpact === 'Stronger' ? 'bg-emerald-100 text-emerald-700' :
+                      row.netImpact === 'Weaker' ? 'bg-red-100 text-red-700' :
+                      row.netImpact === 'Unchanged' ? 'bg-gray-100 text-gray-600' :
+                      'bg-gray-50 text-gray-400'
                     }`}>
-                      {row.netImpact === '更强' && <TrendingUp className="h-3 w-3" />}
-                      {row.netImpact === '更弱' && <TrendingDown className="h-3 w-3" />}
-                      {row.netImpact === '不变' && <Minus className="h-3 w-3" />}
+                      {row.netImpact === 'Stronger' && <TrendingUp className="h-3 w-3" />}
+                      {row.netImpact === 'Weaker' && <TrendingDown className="h-3 w-3" />}
+                      {row.netImpact === 'Unchanged' && <Minus className="h-3 w-3" />}
                       {row.netImpact}
                     </span>
                   </td>
-
-                  {/* 建议 */}
-                  <td className="px-3 py-2 border-r border-gray-100">
-                    <span className="text-gray-600">{row.recommendation || '-'}</span>
+                  <td className="px-3 py-2.5 border-r border-gray-100 text-gray-600">
+                    {row.recommendation || '-'}
                   </td>
-
-                  {/* 检查点 */}
-                  <td className="px-3 py-2 border-r border-gray-100">
-                    <span className="text-gray-500">{row.checkpoint || '-'}</span>
+                  <td className="px-3 py-2.5 border-r border-gray-100 text-gray-500 text-[10px]">
+                    {row.checkpoint || '-'}
                   </td>
-
-                  {/* 日期 */}
-                  <td className="px-3 py-2 text-center text-gray-400">
+                  <td className="px-3 py-2.5 text-center text-gray-500">
                     {row.analysisDate}
                   </td>
                 </tr>
@@ -482,14 +457,6 @@ export default function SummaryPage() {
             )}
           </tbody>
         </table>
-      </div>
-
-      {/* Footer */}
-      <div className="flex-shrink-0 bg-white border-t border-gray-200 px-4 py-1.5 text-[11px] text-gray-400">
-        <div className="flex items-center justify-between">
-          <span>显示 {filteredAndSorted.length} / {coreConclusions.length} 条记录</span>
-          <span>点击列头排序 · 支持搜索和筛选</span>
-        </div>
       </div>
     </div>
   )

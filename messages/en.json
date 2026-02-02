@@ -36,6 +36,18 @@
     "analysisFailed": "Analysis failed",
     "completed": "Completed"
   },
+  "processing": {
+    "analyzing": "Analyzing {count} reports",
+    "hasErrors": "{count} reports failed",
+    "allComplete": "All analyses complete",
+    "pleaseWait": "Please wait, AI is processing...",
+    "recentActivity": "Recent activity",
+    "inProgress": "In Progress",
+    "recentlyCompleted": "Recently Completed",
+    "failed": "Failed",
+    "done": "Done",
+    "analyzing_status": "Analyzing..."
+  },
   "nav": {
     "dashboard": "Dashboard",
     "reports": "Reports",
@@ -212,6 +224,7 @@
     "title": "Core Conclusions",
     "total": "Total",
     "items": "items",
+    "symbol": "Symbol",
     "searchCompany": "Search company...",
     "netImpact": "Net Impact",
     "stronger": "Stronger",

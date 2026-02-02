@@ -9,6 +9,7 @@ import Link from 'next/link'
 import UploadModal from './upload-modal'
 import ReportList from './report-list'
 import AnalysisView from './analysis-view'
+import ProcessingTracker from './processing-tracker'
 
 export default function DashboardClient() {
   const t = useTranslations()
@@ -234,6 +235,9 @@ export default function DashboardClient() {
           <ReportList onSelectAnalysis={setSelectedAnalysis} onRefresh={loadDashboardData} />
         </CardContent>
       </Card>
+
+      {/* Processing Tracker */}
+      <ProcessingTracker onRefresh={loadDashboardData} />
 
       {/* Upload Modal */}
       <UploadModal
