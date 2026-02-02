@@ -9,22 +9,29 @@ import { analysisStore } from '@/lib/store'
 export const runtime = 'nodejs'
 export const maxDuration = 300 // 5 minutes
 
-// 请求ID缓存，防止重复处理
-const processedRequests = new Map<string, { timestamp: number; analysisId: string }>()
+// 使用 Map 存储正在处理的请求，防止重复
+// Key: requestId, Value: { timestamp, analysisId, status }
+const activeRequests = new Map<string, { 
+  timestamp: number
+  analysisId: string | null
+  status: 'processing' | 'completed' | 'error'
+  result?: any
+}>()
 
-// 清理过期的请求ID（5分钟过期）
+// 清理过期的请求记录（10分钟过期）
 function cleanupOldRequests() {
   const now = Date.now()
-  const expireTime = 5 * 60 * 1000 // 5分钟
-  for (const [key, value] of processedRequests.entries()) {
+  const expireTime = 10 * 60 * 1000 // 10分钟
+  for (const [key, value] of activeRequests.entries()) {
     if (now - value.timestamp > expireTime) {
-      processedRequests.delete(key)
+      activeRequests.delete(key)
     }
   }
 }
 
 export async function POST(request: NextRequest) {
   let processingId: string | null = null
+  let requestId: string | null = null
   
   try {
     const session = await getServerSession(authOptions)
@@ -34,21 +41,51 @@ export async function POST(request: NextRequest) {
 
     const formData = await request.formData()
     
-    // 检查请求ID防止重复处理
-    const requestId = formData.get('requestId') as string | null
+    // 获取请求ID
+    requestId = formData.get('requestId') as string | null
+    
+    // 清理过期请求
+    cleanupOldRequests()
+    
+    // 检查是否是重复请求
     if (requestId) {
-      cleanupOldRequests()
-      const existing = processedRequests.get(requestId)
+      const existing = activeRequests.get(requestId)
       if (existing) {
-        console.log(`[上传] 检测到重复请求: ${requestId}，返回已有结果`)
-        const existingAnalysis = await analysisStore.get(existing.analysisId)
-        return NextResponse.json({
-          success: true,
-          analysis_id: existing.analysisId,
-          analysis: existingAnalysis,
-          duplicate: true,
-        })
+        console.log(`[上传] 检测到重复请求: ${requestId}, 状态: ${existing.status}`)
+        
+        // 如果请求正在处理中，返回等待状态
+        if (existing.status === 'processing') {
+          return NextResponse.json({
+            success: false,
+            message: '请求正在处理中，请勿重复提交',
+            duplicate: true,
+            processing: true,
+          }, { status: 202 })
+        }
+        
+        // 如果请求已完成，返回已有结果
+        if (existing.status === 'completed' && existing.analysisId) {
+          const existingAnalysis = await analysisStore.get(existing.analysisId)
+          return NextResponse.json({
+            success: true,
+            analysis_id: existing.analysisId,
+            analysis: existingAnalysis,
+            duplicate: true,
+          })
+        }
+        
+        // 如果之前失败了，允许重试（删除旧记录）
+        if (existing.status === 'error') {
+          activeRequests.delete(requestId)
+        }
       }
+      
+      // 立即标记请求为处理中，防止并发请求
+      activeRequests.set(requestId, {
+        timestamp: Date.now(),
+        analysisId: null,
+        status: 'processing',
+      })
     }
     
     // Get financial report files (required)
@@ -64,12 +101,15 @@ export async function POST(request: NextRequest) {
     }
 
     if (financialFiles.length === 0) {
+      // 清除请求记录
+      if (requestId) activeRequests.delete(requestId)
       return NextResponse.json({ error: '请上传至少一份财报文件' }, { status: 400 })
     }
 
     // Validate all files are PDFs
     for (const file of [...financialFiles, ...researchFiles]) {
       if (file.type !== 'application/pdf') {
+        if (requestId) activeRequests.delete(requestId)
         return NextResponse.json({ error: `文件 ${file.name} 不是PDF格式` }, { status: 400 })
       }
     }
@@ -80,7 +120,7 @@ export async function POST(request: NextRequest) {
       ? category as 'AI_APPLICATION' | 'AI_SUPPLY_CHAIN'
       : null
 
-    console.log(`[上传] 处理财报: ${financialFiles.length} 个文件, 研报: ${researchFiles.length} 个文件, 分类: ${selectedCategory || '自动检测'}`)
+    console.log(`[上传] 处理财报: ${financialFiles.length} 个文件, 研报: ${researchFiles.length} 个文件, 分类: ${selectedCategory || '自动检测'}, requestId: ${requestId}`)
 
     // Extract text from all financial reports
     console.log('[上传] 正在提取财报文本...')
@@ -94,6 +134,13 @@ export async function POST(request: NextRequest) {
     }
 
     if (!financialText || financialText.length < 100) {
+      if (requestId) {
+        activeRequests.set(requestId, {
+          timestamp: Date.now(),
+          analysisId: null,
+          status: 'error',
+        })
+      }
       return NextResponse.json({ error: '无法从财报PDF中提取文本' }, { status: 400 })
     }
 
@@ -129,16 +176,17 @@ export async function POST(request: NextRequest) {
       created_at: new Date().toISOString(),
       processed: false,
       processing: true,
-      has_research_report: researchFiles.length > 0, // Track if research report was provided
+      has_research_report: researchFiles.length > 0,
     })
     processingId = processingEntry.id
     console.log(`[上传] 创建处理记录: ${processingId}`)
 
-    // 立即记录requestId，防止并发请求创建重复任务
-    if (requestId && processingId) {
-      processedRequests.set(requestId, {
+    // 更新请求记录，关联 analysisId
+    if (requestId) {
+      activeRequests.set(requestId, {
         timestamp: Date.now(),
         analysisId: processingId,
+        status: 'processing',
       })
     }
 
@@ -164,7 +212,7 @@ export async function POST(request: NextRequest) {
           },
           category: selectedCategory,
         },
-        researchText || undefined // Pass research report text if available
+        researchText || undefined
       )
     } catch (analysisError: any) {
       console.error('[上传] AI分析失败:', analysisError)
@@ -175,6 +223,15 @@ export async function POST(request: NextRequest) {
         processed: false,
         error: analysisError.message || 'AI分析失败',
       })
+      
+      // 更新请求状态为错误
+      if (requestId) {
+        activeRequests.set(requestId, {
+          timestamp: Date.now(),
+          analysisId: processingId,
+          status: 'error',
+        })
+      }
       
       return NextResponse.json(
         { error: `AI分析失败: ${analysisError.message}` },
@@ -192,11 +249,12 @@ export async function POST(request: NextRequest) {
 
     console.log(`[上传] 分析完成: ${processingId}`)
 
-    // 记录请求ID防止重复处理
-    if (requestId && processingId) {
-      processedRequests.set(requestId, {
+    // 更新请求状态为完成
+    if (requestId) {
+      activeRequests.set(requestId, {
         timestamp: Date.now(),
         analysisId: processingId,
+        status: 'completed',
       })
     }
 
@@ -220,6 +278,15 @@ export async function POST(request: NextRequest) {
       } catch (updateError) {
         console.error('[上传] 更新错误状态失败:', updateError)
       }
+    }
+    
+    // 更新请求状态为错误
+    if (requestId) {
+      activeRequests.set(requestId, {
+        timestamp: Date.now(),
+        analysisId: processingId,
+        status: 'error',
+      })
     }
     
     return NextResponse.json(
