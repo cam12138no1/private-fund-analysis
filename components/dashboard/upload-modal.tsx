@@ -235,10 +235,10 @@ export default function UploadModal({ isOpen, onClose, onSuccess }: UploadModalP
             <div className="space-y-3">
               <div className="flex items-center justify-between text-sm">
                 <span className="font-medium text-gray-700">
-                  已选择 {files.length} 个文件
+                  {t('upload.filesSelected', { count: files.length })}
                 </span>
                 <span className="text-gray-500">
-                  共 {(totalSize / 1024 / 1024).toFixed(2)} MB
+                  {t('upload.totalSize', { size: (totalSize / 1024 / 1024).toFixed(2) })}
                 </span>
               </div>
               
