@@ -9,6 +9,20 @@ import { analysisStore } from '@/lib/store'
 export const runtime = 'nodejs'
 export const maxDuration = 300 // 5 minutes
 
+// 请求ID缓存，防止重复处理
+const processedRequests = new Map<string, { timestamp: number; analysisId: string }>()
+
+// 清理过期的请求ID（5分钟过期）
+function cleanupOldRequests() {
+  const now = Date.now()
+  const expireTime = 5 * 60 * 1000 // 5分钟
+  for (const [key, value] of processedRequests.entries()) {
+    if (now - value.timestamp > expireTime) {
+      processedRequests.delete(key)
+    }
+  }
+}
+
 export async function POST(request: NextRequest) {
   let processingId: string | null = null
   
@@ -19,6 +33,23 @@ export async function POST(request: NextRequest) {
     }
 
     const formData = await request.formData()
+    
+    // 检查请求ID防止重复处理
+    const requestId = formData.get('requestId') as string | null
+    if (requestId) {
+      cleanupOldRequests()
+      const existing = processedRequests.get(requestId)
+      if (existing) {
+        console.log(`[上传] 检测到重复请求: ${requestId}，返回已有结果`)
+        const existingAnalysis = await analysisStore.get(existing.analysisId)
+        return NextResponse.json({
+          success: true,
+          analysis_id: existing.analysisId,
+          analysis: existingAnalysis,
+          duplicate: true,
+        })
+      }
+    }
     
     // Get financial report files (required)
     const financialFiles = formData.getAll('financialFiles') as File[]
@@ -103,6 +134,14 @@ export async function POST(request: NextRequest) {
     processingId = processingEntry.id
     console.log(`[上传] 创建处理记录: ${processingId}`)
 
+    // 立即记录requestId，防止并发请求创建重复任务
+    if (requestId && processingId) {
+      processedRequests.set(requestId, {
+        timestamp: Date.now(),
+        analysisId: processingId,
+      })
+    }
+
     // Step 2: Analyze the report with the selected category
     console.log(`[上传] 正在进行AI分析... 分类: ${selectedCategory || '自动检测'}`)
     
@@ -152,6 +191,14 @@ export async function POST(request: NextRequest) {
     })
 
     console.log(`[上传] 分析完成: ${processingId}`)
+
+    // 记录请求ID防止重复处理
+    if (requestId && processingId) {
+      processedRequests.set(requestId, {
+        timestamp: Date.now(),
+        analysisId: processingId,
+      })
+    }
 
     return NextResponse.json({
       success: true,

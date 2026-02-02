@@ -58,6 +58,7 @@ export default function UploadModal({ isOpen, onClose, onSuccess }: UploadModalP
   const [selectedCategory, setSelectedCategory] = useState<'AI_APPLICATION' | 'AI_SUPPLY_CHAIN' | null>(null)
   const [analysisStatus, setAnalysisStatus] = useState<AnalysisStatus>('idle')
   const [errorMessage, setErrorMessage] = useState<string>('')
+  const [submissionId, setSubmissionId] = useState<string | null>(null) // 防止重复提交
 
   // Reset state when modal closes
   useEffect(() => {
@@ -68,6 +69,7 @@ export default function UploadModal({ isOpen, onClose, onSuccess }: UploadModalP
         setSelectedCategory(null)
         setAnalysisStatus('idle')
         setErrorMessage('')
+        setSubmissionId(null)
       }
     }
   }, [isOpen, isSubmitting])
@@ -188,6 +190,17 @@ export default function UploadModal({ isOpen, onClose, onSuccess }: UploadModalP
       return
     }
 
+    // 防止重复提交
+    if (isSubmitting) {
+      console.log('[Upload] 已在提交中，忽略重复请求')
+      return
+    }
+
+    // 生成唯一提交ID
+    const currentSubmissionId = `submit_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+    setSubmissionId(currentSubmissionId)
+    console.log(`[Upload] 开始提交: ${currentSubmissionId}`)
+
     setIsSubmitting(true)
     setAnalysisStatus('uploading')
     setErrorMessage('')
@@ -206,6 +219,8 @@ export default function UploadModal({ isOpen, onClose, onSuccess }: UploadModalP
       })
       
       formData.append('category', selectedCategory)
+      // 添加唯一请求ID防止服务端重复处理
+      formData.append('requestId', currentSubmissionId)
 
       // Update status as we progress
       setTimeout(() => setAnalysisStatus('extracting'), 1000)
