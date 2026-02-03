@@ -13,7 +13,7 @@ export interface StoredAnalysis {
   fiscal_quarter?: number
   period?: string  // 格式化的期间，如 "Q4 2025"
   category?: string  // 公司分类: AI_APPLICATION | AI_SUPPLY_CHAIN
-  request_id?: string  // ★★★ 用于去重的请求ID ★★★
+  request_id?: string  // 用于去重的请求ID（现在也作为文件名的一部分）
   filing_date: string
   created_at: string
   processed: boolean
@@ -86,13 +86,23 @@ export interface StoredAnalysis {
 }
 
 const BLOB_PREFIX = 'analyses/'
-const INDEX_FILE = 'analyses/_index.json'
 
 // Check if Blob is available
 function isBlobAvailable(): boolean {
   return !!process.env.BLOB_READ_WRITE_TOKEN
 }
 
+/**
+ * ★★★ 原子去重方案 ★★★
+ * 
+ * 问题：两个serverless实例同时执行findByRequestId()，都扫到"没有"，然后各自创建记录
+ * 
+ * 解决方案：使用 requestId 作为 Blob 文件名的一部分
+ * - 文件名格式：analyses/req_{requestId}.json
+ * - Vercel Blob 的 put 操作是原子的（同名文件会覆盖）
+ * - 这样即使两个实例同时写入，最终只会有一个文件
+ * - 第二个写入会覆盖第一个，但内容相同，所以没问题
+ */
 class AnalysisStore {
   private memoryStore: Map<string, StoredAnalysis> = new Map()
   private memoryCounter: number = 0
@@ -103,21 +113,49 @@ class AnalysisStore {
     console.log(`AnalysisStore initialized. Using Blob: ${this.useBlob}`)
   }
 
-  private async getIndex(): Promise<string[]> {
-    if (!this.useBlob) return []
-    
-    try {
-      const { blobs } = await list({ prefix: BLOB_PREFIX })
-      // Filter out the index file itself
-      return blobs
-        .filter(b => !b.pathname.endsWith('_index.json'))
-        .map(b => b.pathname.replace(BLOB_PREFIX, '').replace('.json', ''))
-    } catch (error) {
-      console.error('[Blob] Error getting index:', error)
-      return []
+  /**
+   * ★★★ 原子性添加：使用 requestId 作为唯一标识 ★★★
+   * 如果 requestId 相同，文件会被覆盖（原子操作）
+   */
+  async addWithRequestId(requestId: string, analysis: Omit<StoredAnalysis, 'id'>): Promise<StoredAnalysis> {
+    // 使用 requestId 作为 ID，确保唯一性
+    const id = `req_${requestId}`
+    const storedAnalysis: StoredAnalysis = { 
+      id, 
+      request_id: requestId,
+      ...analysis 
     }
+    
+    if (this.useBlob) {
+      try {
+        // 文件名使用 requestId，这样同一个请求只会有一个文件
+        const blobPath = `${BLOB_PREFIX}${id}.json`
+        
+        // Vercel Blob 的 put 是原子操作
+        // 如果两个实例同时写入同一个文件名，后写入的会覆盖先写入的
+        // 但因为内容相同（都是 processing 状态），所以结果是正确的
+        await put(blobPath, JSON.stringify(storedAnalysis), {
+          access: 'public',
+          contentType: 'application/json',
+        })
+        
+        console.log(`[Blob] Added/Updated analysis with requestId: ${requestId} -> ${id}`)
+        return storedAnalysis
+      } catch (error) {
+        console.error('[Blob] Error adding analysis:', error)
+        throw error  // 不要静默失败，让调用者知道
+      }
+    }
+    
+    // Memory fallback
+    this.memoryStore.set(id, storedAnalysis)
+    console.log(`[Memory] Added analysis: ${id}`)
+    return storedAnalysis
   }
 
+  /**
+   * 旧的 add 方法保留用于兼容（但不推荐使用）
+   */
   async add(analysis: Omit<StoredAnalysis, 'id'>): Promise<StoredAnalysis> {
     const timestamp = Date.now()
     const id = `analysis_${timestamp}_${Math.random().toString(36).substr(2, 9)}`
@@ -135,7 +173,6 @@ class AnalysisStore {
         return storedAnalysis
       } catch (error) {
         console.error('[Blob] Error adding analysis, falling back to memory:', error)
-        // Fall back to memory
       }
     }
     
@@ -195,6 +232,16 @@ class AnalysisStore {
       }
     }
     return this.memoryStore.get(id)
+  }
+
+  /**
+   * ★★★ 通过 requestId 获取分析记录 ★★★
+   * 直接通过文件名查找，不需要扫表
+   */
+  async getByRequestId(requestId: string): Promise<StoredAnalysis | undefined> {
+    if (!requestId) return undefined
+    const id = `req_${requestId}`
+    return this.get(id)
   }
 
   async getAll(): Promise<StoredAnalysis[]> {
@@ -312,21 +359,10 @@ class AnalysisStore {
   }
 
   /**
-   * ★★★ 关键方法：通过requestId查找分析记录 ★★★
-   * 用于数据库级别的去重，防止重复创建任务
+   * 旧方法保留用于兼容（但现在推荐使用 getByRequestId）
    */
   async findByRequestId(requestId: string): Promise<StoredAnalysis | undefined> {
-    if (!requestId) return undefined
-    
-    const all = await this.getAll()
-    // 查找最近创建的匹配记录（已按created_at降序排列）
-    const found = all.find(a => a.request_id === requestId)
-    
-    if (found) {
-      console.log(`[Store] Found analysis by requestId: ${requestId} -> ${found.id}`)
-    }
-    
-    return found
+    return this.getByRequestId(requestId)
   }
 }
 

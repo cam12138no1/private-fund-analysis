@@ -10,18 +10,15 @@ export const runtime = 'nodejs'
 export const maxDuration = 300 // 5 minutes
 
 /**
- * 关键修复：使用数据库级别的去重，而不是内存Map
+ * ★★★ 原子去重方案 ★★★
  * 
- * 问题根因：
- * 1. Vercel Serverless 函数的内存不共享
- * 2. 每次请求可能由不同的serverless实例处理
- * 3. 内存中的 activeRequests Map 在不同实例间是独立的
- * 4. 导致同一个请求被多个实例处理，创建多个数据库记录
+ * 问题：两个serverless实例同时执行，都创建了记录
  * 
  * 解决方案：
- * 1. 在创建处理记录时，先检查是否已存在相同requestId的记录
- * 2. 使用 requestId 作为唯一标识存储在数据库中
- * 3. 如果已存在，直接返回已有记录的状态
+ * 1. 使用 requestId 作为 Blob 文件名（req_{requestId}.json）
+ * 2. Vercel Blob 的 put 是原子操作，同名文件会覆盖
+ * 3. 即使两个实例同时写入，最终只有一个文件
+ * 4. 后续更新都针对同一个文件，不会产生重复
  */
 
 export async function POST(request: NextRequest) {
@@ -51,16 +48,18 @@ export async function POST(request: NextRequest) {
     requestId = formData.get('requestId') as string | null
     
     if (!requestId) {
-      // 如果没有requestId，生成一个
-      requestId = `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+      // 如果没有requestId，生成一个（但这不应该发生）
+      requestId = `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+      console.warn('[上传] 前端未提供requestId，已生成:', requestId)
     }
     
     console.log(`[上传] 请求ID: ${requestId}`)
     
-    // ★★★ 关键修复：先检查数据库中是否已存在此requestId的记录 ★★★
-    const existingAnalysis = await analysisStore.findByRequestId(requestId)
+    // ★★★ 检查是否已存在此requestId的记录 ★★★
+    // 使用 getByRequestId 直接通过文件名查找，不需要扫表
+    const existingAnalysis = await analysisStore.getByRequestId(requestId)
     if (existingAnalysis) {
-      console.log(`[上传] 发现已存在的请求记录: ${existingAnalysis.id}, 状态: processing=${existingAnalysis.processing}, processed=${existingAnalysis.processed}`)
+      console.log(`[上传] 发现已存在的请求记录: ${existingAnalysis.id}, processed=${existingAnalysis.processed}, processing=${existingAnalysis.processing}`)
       
       // 如果已经完成，直接返回结果
       if (existingAnalysis.processed) {
@@ -74,7 +73,7 @@ export async function POST(request: NextRequest) {
       }
       
       // 如果正在处理中，返回等待状态
-      if (existingAnalysis.processing) {
+      if (existingAnalysis.processing && !existingAnalysis.error) {
         return NextResponse.json({
           success: false,
           analysis_id: existingAnalysis.id,
@@ -150,7 +149,6 @@ export async function POST(request: NextRequest) {
         }
       } catch (extractError: any) {
         console.error(`[上传] 提取文件 ${file.name} 失败:`, extractError.message)
-        // Continue with other files instead of failing completely
       }
     }
 
@@ -199,30 +197,10 @@ export async function POST(request: NextRequest) {
       ? `Q${finalFiscalQuarter} ${finalFiscalYear}` 
       : `FY ${finalFiscalYear}`
 
-    // ★★★ 关键修复：创建记录时包含 requestId ★★★
-    // 再次检查是否已存在（防止并发）
-    const doubleCheck = await analysisStore.findByRequestId(requestId)
-    if (doubleCheck && !doubleCheck.error) {
-      console.log(`[上传] 并发检查：发现已存在的记录: ${doubleCheck.id}`)
-      if (doubleCheck.processed) {
-        return NextResponse.json({
-          success: true,
-          analysis_id: doubleCheck.id,
-          analysis: doubleCheck,
-          duplicate: true,
-        })
-      }
-      return NextResponse.json({
-        success: false,
-        analysis_id: doubleCheck.id,
-        message: '请求正在处理中',
-        duplicate: true,
-        processing: true,
-      }, { status: 202 })
-    }
-
-    // Create processing entry with requestId
-    const processingEntry = await analysisStore.add({
+    // ★★★ 使用原子性方法创建记录 ★★★
+    // addWithRequestId 使用 requestId 作为文件名
+    // 即使两个实例同时调用，也只会创建/覆盖同一个文件
+    const processingEntry = await analysisStore.addWithRequestId(requestId, {
       company_name: metadata.company_name,
       company_symbol: metadata.company_symbol,
       report_type: metadata.report_type,
@@ -235,10 +213,9 @@ export async function POST(request: NextRequest) {
       processed: false,
       processing: true,
       has_research_report: researchFiles.length > 0,
-      request_id: requestId,  // ★★★ 存储requestId用于去重 ★★★
     })
     processingId = processingEntry.id
-    console.log(`[上传] 创建处理记录: ${processingId}, requestId: ${requestId}`)
+    console.log(`[上传] 创建处理记录: ${processingId}`)
 
     // Step 2: Analyze the report with the selected category
     console.log(`[上传] 正在进行AI分析... 分类: ${selectedCategory || '自动检测'}`)
