@@ -13,6 +13,7 @@ export interface StoredAnalysis {
   fiscal_quarter?: number
   period?: string  // 格式化的期间，如 "Q4 2025"
   category?: string  // 公司分类: AI_APPLICATION | AI_SUPPLY_CHAIN
+  request_id?: string  // ★★★ 用于去重的请求ID ★★★
   filing_date: string
   created_at: string
   processed: boolean
@@ -308,6 +309,24 @@ class AnalysisStore {
     }
     
     return deletedCount
+  }
+
+  /**
+   * ★★★ 关键方法：通过requestId查找分析记录 ★★★
+   * 用于数据库级别的去重，防止重复创建任务
+   */
+  async findByRequestId(requestId: string): Promise<StoredAnalysis | undefined> {
+    if (!requestId) return undefined
+    
+    const all = await this.getAll()
+    // 查找最近创建的匹配记录（已按created_at降序排列）
+    const found = all.find(a => a.request_id === requestId)
+    
+    if (found) {
+      console.log(`[Store] Found analysis by requestId: ${requestId} -> ${found.id}`)
+    }
+    
+    return found
   }
 }
 

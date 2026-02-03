@@ -9,25 +9,20 @@ import { analysisStore } from '@/lib/store'
 export const runtime = 'nodejs'
 export const maxDuration = 300 // 5 minutes
 
-// 使用 Map 存储正在处理的请求，防止重复
-// Key: requestId, Value: { timestamp, analysisId, status }
-const activeRequests = new Map<string, { 
-  timestamp: number
-  analysisId: string | null
-  status: 'processing' | 'completed' | 'error'
-  result?: any
-}>()
-
-// 清理过期的请求记录（10分钟过期）
-function cleanupOldRequests() {
-  const now = Date.now()
-  const expireTime = 10 * 60 * 1000 // 10分钟
-  for (const [key, value] of activeRequests.entries()) {
-    if (now - value.timestamp > expireTime) {
-      activeRequests.delete(key)
-    }
-  }
-}
+/**
+ * 关键修复：使用数据库级别的去重，而不是内存Map
+ * 
+ * 问题根因：
+ * 1. Vercel Serverless 函数的内存不共享
+ * 2. 每次请求可能由不同的serverless实例处理
+ * 3. 内存中的 activeRequests Map 在不同实例间是独立的
+ * 4. 导致同一个请求被多个实例处理，创建多个数据库记录
+ * 
+ * 解决方案：
+ * 1. 在创建处理记录时，先检查是否已存在相同requestId的记录
+ * 2. 使用 requestId 作为唯一标识存储在数据库中
+ * 3. 如果已存在，直接返回已有记录的状态
+ */
 
 export async function POST(request: NextRequest) {
   let processingId: string | null = null
@@ -52,51 +47,48 @@ export async function POST(request: NextRequest) {
       }, { status: 400 })
     }
     
-    // 获取请求ID
+    // 获取请求ID - 这是前端生成的唯一标识
     requestId = formData.get('requestId') as string | null
     
-    // 清理过期请求
-    cleanupOldRequests()
+    if (!requestId) {
+      // 如果没有requestId，生成一个
+      requestId = `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+    }
     
-    // 检查是否是重复请求
-    if (requestId) {
-      const existing = activeRequests.get(requestId)
-      if (existing) {
-        console.log(`[上传] 检测到重复请求: ${requestId}, 状态: ${existing.status}`)
-        
-        // 如果请求正在处理中，返回等待状态
-        if (existing.status === 'processing') {
-          return NextResponse.json({
-            success: false,
-            message: '请求正在处理中，请勿重复提交',
-            duplicate: true,
-            processing: true,
-          }, { status: 202 })
-        }
-        
-        // 如果请求已完成，返回已有结果
-        if (existing.status === 'completed' && existing.analysisId) {
-          const existingAnalysis = await analysisStore.get(existing.analysisId)
-          return NextResponse.json({
-            success: true,
-            analysis_id: existing.analysisId,
-            analysis: existingAnalysis,
-            duplicate: true,
-          })
-        }
-        
-        // 如果之前失败了，允许重试（删除旧记录）
-        if (existing.status === 'error') {
-          activeRequests.delete(requestId)
-        }
+    console.log(`[上传] 请求ID: ${requestId}`)
+    
+    // ★★★ 关键修复：先检查数据库中是否已存在此requestId的记录 ★★★
+    const existingAnalysis = await analysisStore.findByRequestId(requestId)
+    if (existingAnalysis) {
+      console.log(`[上传] 发现已存在的请求记录: ${existingAnalysis.id}, 状态: processing=${existingAnalysis.processing}, processed=${existingAnalysis.processed}`)
+      
+      // 如果已经完成，直接返回结果
+      if (existingAnalysis.processed) {
+        return NextResponse.json({
+          success: true,
+          analysis_id: existingAnalysis.id,
+          analysis: existingAnalysis,
+          duplicate: true,
+          message: '分析已完成',
+        })
       }
       
-      // 立即标记请求为处理中，防止并发请求
-      activeRequests.set(requestId, {
-        timestamp: Date.now(),
-        analysisId: null,
-        status: 'processing',
-      })
+      // 如果正在处理中，返回等待状态
+      if (existingAnalysis.processing) {
+        return NextResponse.json({
+          success: false,
+          analysis_id: existingAnalysis.id,
+          message: '请求正在处理中，请稍候',
+          duplicate: true,
+          processing: true,
+        }, { status: 202 })
+      }
+      
+      // 如果有错误，允许重试（删除旧记录）
+      if (existingAnalysis.error) {
+        console.log(`[上传] 删除失败的旧记录: ${existingAnalysis.id}`)
+        await analysisStore.delete(existingAnalysis.id)
+      }
     }
     
     // Get financial report files (required)
@@ -118,8 +110,6 @@ export async function POST(request: NextRequest) {
     }
 
     if (financialFiles.length === 0) {
-      // 清除请求记录
-      if (requestId) activeRequests.delete(requestId)
       return NextResponse.json({ error: '请上传至少一份财报文件' }, { status: 400 })
     }
 
@@ -135,7 +125,6 @@ export async function POST(request: NextRequest) {
     // Validate all files are PDFs
     for (const file of [...financialFiles, ...researchFiles]) {
       if (file.type !== 'application/pdf') {
-        if (requestId) activeRequests.delete(requestId)
         return NextResponse.json({ error: `文件 ${file.name} 不是PDF格式` }, { status: 400 })
       }
     }
@@ -146,7 +135,7 @@ export async function POST(request: NextRequest) {
       ? category as 'AI_APPLICATION' | 'AI_SUPPLY_CHAIN'
       : null
 
-    console.log(`[上传] 处理财报: ${financialFiles.length} 个文件, 研报: ${researchFiles.length} 个文件, 分类: ${selectedCategory || '自动检测'}, requestId: ${requestId}`)
+    console.log(`[上传] 处理财报: ${financialFiles.length} 个文件, 研报: ${researchFiles.length} 个文件, 分类: ${selectedCategory || '自动检测'}`)
 
     // Extract text from all financial reports
     console.log('[上传] 正在提取财报文本...')
@@ -166,13 +155,6 @@ export async function POST(request: NextRequest) {
     }
 
     if (!financialText || financialText.length < 100) {
-      if (requestId) {
-        activeRequests.set(requestId, {
-          timestamp: Date.now(),
-          analysisId: null,
-          status: 'error',
-        })
-      }
       return NextResponse.json({ error: '无法从财报PDF中提取足够的文本内容，请确保PDF不是扫描件' }, { status: 400 })
     }
 
@@ -205,13 +187,6 @@ export async function POST(request: NextRequest) {
       console.log('[上传] 提取的元数据:', metadata)
     } catch (metadataError: any) {
       console.error('[上传] 元数据提取失败:', metadataError.message)
-      if (requestId) {
-        activeRequests.set(requestId, {
-          timestamp: Date.now(),
-          analysisId: null,
-          status: 'error',
-        })
-      }
       return NextResponse.json({ 
         error: `元数据提取失败: ${metadataError.message}` 
       }, { status: 500 })
@@ -224,7 +199,29 @@ export async function POST(request: NextRequest) {
       ? `Q${finalFiscalQuarter} ${finalFiscalYear}` 
       : `FY ${finalFiscalYear}`
 
-    // Create processing entry so frontend can see progress
+    // ★★★ 关键修复：创建记录时包含 requestId ★★★
+    // 再次检查是否已存在（防止并发）
+    const doubleCheck = await analysisStore.findByRequestId(requestId)
+    if (doubleCheck && !doubleCheck.error) {
+      console.log(`[上传] 并发检查：发现已存在的记录: ${doubleCheck.id}`)
+      if (doubleCheck.processed) {
+        return NextResponse.json({
+          success: true,
+          analysis_id: doubleCheck.id,
+          analysis: doubleCheck,
+          duplicate: true,
+        })
+      }
+      return NextResponse.json({
+        success: false,
+        analysis_id: doubleCheck.id,
+        message: '请求正在处理中',
+        duplicate: true,
+        processing: true,
+      }, { status: 202 })
+    }
+
+    // Create processing entry with requestId
     const processingEntry = await analysisStore.add({
       company_name: metadata.company_name,
       company_symbol: metadata.company_symbol,
@@ -238,18 +235,10 @@ export async function POST(request: NextRequest) {
       processed: false,
       processing: true,
       has_research_report: researchFiles.length > 0,
+      request_id: requestId,  // ★★★ 存储requestId用于去重 ★★★
     })
     processingId = processingEntry.id
-    console.log(`[上传] 创建处理记录: ${processingId}`)
-
-    // 更新请求记录，关联 analysisId
-    if (requestId) {
-      activeRequests.set(requestId, {
-        timestamp: Date.now(),
-        analysisId: processingId,
-        status: 'processing',
-      })
-    }
+    console.log(`[上传] 创建处理记录: ${processingId}, requestId: ${requestId}`)
 
     // Step 2: Analyze the report with the selected category
     console.log(`[上传] 正在进行AI分析... 分类: ${selectedCategory || '自动检测'}`)
@@ -284,15 +273,6 @@ export async function POST(request: NextRequest) {
         error: analysisError.message || 'AI分析失败',
       })
       
-      // 更新请求状态为错误
-      if (requestId) {
-        activeRequests.set(requestId, {
-          timestamp: Date.now(),
-          analysisId: processingId,
-          status: 'error',
-        })
-      }
-      
       return NextResponse.json(
         { error: `AI分析失败: ${analysisError.message}` },
         { status: 500 }
@@ -308,15 +288,6 @@ export async function POST(request: NextRequest) {
     })
 
     console.log(`[上传] 分析完成: ${processingId}`)
-
-    // 更新请求状态为完成
-    if (requestId) {
-      activeRequests.set(requestId, {
-        timestamp: Date.now(),
-        analysisId: processingId,
-        status: 'completed',
-      })
-    }
 
     return NextResponse.json({
       success: true,
@@ -338,15 +309,6 @@ export async function POST(request: NextRequest) {
       } catch (updateError) {
         console.error('[上传] 更新错误状态失败:', updateError)
       }
-    }
-    
-    // 更新请求状态为错误
-    if (requestId) {
-      activeRequests.set(requestId, {
-        timestamp: Date.now(),
-        analysisId: processingId,
-        status: 'error',
-      })
     }
     
     return NextResponse.json(
