@@ -156,7 +156,7 @@ const JSON_OUTPUT_INSTRUCTION = `
 请严格按照以下JSON格式输出分析结果，所有内容必须使用中文：
 
 {
-  "one_line_conclusion": "【一句话结论】格式：核心收入/指引{超预期/符合/不及预期}，增长由{驱动A}+{驱动B}带动；但{风险点}可能在未来{时间窗口}压制利润/FCF。",
+  "one_line_conclusion": "【一句话结论】核心收入超预期（vs XX预期），增长由XX+XX带动；但XX可能在未来6-12个月压制利润/FCF。注意：不要使用大括号，直接填入具体内容。",
   
   "results_summary": "差异来源拆解：需求端/供给成本端/非经常性因素各贡献多少",
   
@@ -270,7 +270,8 @@ const JSON_OUTPUT_INSTRUCTION = `
 4. 风险必须给出时间窗口
 5. 检查点必须是可验证/可证伪的具体指标或事件
 6. 最终判断必须明确：更强/更弱/不变
-7. investment_committee_summary必须是完整的4-6句话段落，可直接用于投委会报告`
+7. investment_committee_summary必须是完整的4-6句话段落，可直接用于投委会报告
+8. 【重要】所有输出内容不要使用大括号{}作为占位符，直接填入具体内容`
 
 // JSON输出格式 - 有研报对比版本
 const JSON_OUTPUT_INSTRUCTION_WITH_RESEARCH = `
@@ -279,7 +280,7 @@ const JSON_OUTPUT_INSTRUCTION_WITH_RESEARCH = `
 重要：你需要将财报实际数据与研报中的市场预期进行对比分析。
 
 {
-  "one_line_conclusion": "【一句话结论】格式：核心收入/指引{超预期/符合/不及预期}（vs {研报机构}预期），增长由{驱动A}+{驱动B}带动；但{风险点}可能在未来{时间窗口}压制利润/FCF。",
+  "one_line_conclusion": "【一句话结论】核心收入超预期（vs Morgan Stanley预期），增长由用户增长+ARPU提升带动；但CapEx大幅增加可能在未来6-12个月压制FCF。注意：不要使用大括号，直接填入具体内容。",
   
   "results_summary": "差异来源拆解：需求端/供给成本端/非经常性因素各贡献多少（对比研报预期）",
   
@@ -376,12 +377,13 @@ const JSON_OUTPUT_INSTRUCTION_WITH_RESEARCH = `
 }
 
 【关键规则】
-1. results_table的consensus列必须使用研报中的具体预期数据，标注来源
+1. results_table只保留"能改变判断"的数字
 2. 每个驱动必须回答：发生了什么变化 + 为什么
 3. ROI证据必须量化
 4. 风险必须给出时间窗口
 5. research_comparison必须详细对比财报实际与研报预期的差异
-6. investment_committee_summary必须是完整的4-6句话段落`
+6. investment_committee_summary必须是完整的4-6句话段落
+7. 【重要】所有输出内容不要使用大括号{}作为占位符，直接填入具体内容`
 
 export async function analyzeFinancialReport(
   reportText: string,
