@@ -1,6 +1,6 @@
 'use client'
 
-import { FileText, LogOut, LayoutGrid, Table2 } from 'lucide-react'
+import { FileText, LogOut, LayoutGrid } from 'lucide-react'
 import { usePathname } from 'next/navigation'
 import Link from 'next/link'
 import { signOut } from 'next-auth/react'
@@ -10,22 +10,14 @@ import Image from 'next/image'
 export default function Sidebar() {
   const pathname = usePathname()
 
-  // 精简导航 - 两个核心功能
+  // 精简导航 - 只保留首页
   const navigation = [
     { 
       name: '首页', 
       href: '/dashboard', 
       icon: LayoutGrid, 
-      description: '报告管理与分析',
-      // 匹配 /dashboard 和 /dashboard/reports/*
+      description: '财报分析与管理',
       isActive: (path: string) => path === '/dashboard' || path.startsWith('/dashboard/reports')
-    },
-    { 
-      name: '横向对比', 
-      href: '/dashboard/comparison', 
-      icon: Table2, 
-      description: '公司关键指标对比表',
-      isActive: (path: string) => path === '/dashboard/comparison'
     },
   ]
 

@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { Plus, Upload, Loader2, TrendingUp, TrendingDown, Minus, X, ChevronRight, FileText, Building2 } from 'lucide-react'
+import { Plus, Upload, Loader2, TrendingUp, TrendingDown, Minus, ChevronRight, FileText, Building2, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import UploadModal from './upload-modal'
 import AnalysisModal from './analysis-modal'
@@ -13,6 +13,8 @@ interface Analysis {
   period: string
   category: string
   processed: boolean
+  processing?: boolean
+  error?: string
   created_at: string
   one_line_conclusion?: string
   results_summary?: string
@@ -98,32 +100,74 @@ export default function DashboardClient() {
   const [isUploadOpen, setIsUploadOpen] = useState(false)
   const [selectedAnalysis, setSelectedAnalysis] = useState<Analysis | null>(null)
   const [analyses, setAnalyses] = useState<Analysis[]>([])
-  const [processingCount, setProcessingCount] = useState(0)
   const [isLoading, setIsLoading] = useState(true)
   const pollIntervalRef = useRef<NodeJS.Timeout | null>(null)
+  const lastFetchRef = useRef<number>(0)
 
-  const loadDashboardData = useCallback(async () => {
+  // 加载数据
+  const loadDashboardData = useCallback(async (force: boolean = false) => {
+    // 防止频繁请求（至少间隔1秒）
+    const now = Date.now()
+    if (!force && now - lastFetchRef.current < 1000) {
+      return
+    }
+    lastFetchRef.current = now
+
     try {
       const response = await fetch('/api/dashboard')
       const data = await response.json()
       
       if (data.analyses) {
-        setAnalyses(data.analyses)
+        // 过滤掉超过10分钟仍在处理的任务（视为卡住）
+        const validAnalyses = data.analyses.filter((a: Analysis) => {
+          if (a.processing && !a.processed) {
+            const createdAt = new Date(a.created_at).getTime()
+            const ageMinutes = (Date.now() - createdAt) / (1000 * 60)
+            // 超过10分钟的处理中任务视为无效
+            if (ageMinutes > 10) {
+              console.log(`[Dashboard] 过滤掉卡住的任务: ${a.id}, 已运行 ${ageMinutes.toFixed(1)} 分钟`)
+              return false
+            }
+          }
+          return true
+        })
+        setAnalyses(validAnalyses)
       }
       
-      setProcessingCount(data.processingCount || 0)
       setIsLoading(false)
-      
-      return data.processingCount || 0
     } catch (error) {
       console.error('Failed to load dashboard data:', error)
       setIsLoading(false)
-      return 0
     }
   }, [])
 
+  // 删除单个任务
+  const deleteAnalysis = async (id: string) => {
+    try {
+      const response = await fetch(`/api/reports/${id}`, { method: 'DELETE' })
+      if (response.ok) {
+        setAnalyses(prev => prev.filter(a => a.id !== id))
+      }
+    } catch (error) {
+      console.error('Failed to delete analysis:', error)
+    }
+  }
+
+  // 清理所有卡住的任务
+  const cleanupStaleAnalyses = async () => {
+    try {
+      const response = await fetch('/api/reports/clean', { method: 'POST' })
+      if (response.ok) {
+        await loadDashboardData(true)
+      }
+    } catch (error) {
+      console.error('Failed to cleanup stale analyses:', error)
+    }
+  }
+
+  // 初始加载
   useEffect(() => {
-    loadDashboardData()
+    loadDashboardData(true)
     
     return () => {
       if (pollIntervalRef.current) {
@@ -132,18 +176,19 @@ export default function DashboardClient() {
     }
   }, [loadDashboardData])
 
+  // 轮询处理中的任务
   useEffect(() => {
-    if (processingCount > 0) {
-      pollIntervalRef.current = setInterval(async () => {
-        const count = await loadDashboardData()
-        if (count === 0) {
-          if (pollIntervalRef.current) {
-            clearInterval(pollIntervalRef.current)
-            pollIntervalRef.current = null
-          }
-        }
-      }, 3000)
+    const processingAnalyses = analyses.filter(a => a.processing && !a.processed)
+    
+    if (processingAnalyses.length > 0) {
+      // 有处理中的任务，开始轮询
+      if (!pollIntervalRef.current) {
+        pollIntervalRef.current = setInterval(() => {
+          loadDashboardData()
+        }, 3000)
+      }
     } else {
+      // 没有处理中的任务，停止轮询
       if (pollIntervalRef.current) {
         clearInterval(pollIntervalRef.current)
         pollIntervalRef.current = null
@@ -153,13 +198,27 @@ export default function DashboardClient() {
     return () => {
       if (pollIntervalRef.current) {
         clearInterval(pollIntervalRef.current)
+        pollIntervalRef.current = null
       }
     }
-  }, [processingCount, loadDashboardData])
+  }, [analyses, loadDashboardData])
 
-  // 获取完成的分析
-  const completedAnalyses = analyses.filter(a => a.processed)
-  const processingAnalyses = analyses.filter(a => !a.processed)
+  // 获取完成的分析（已处理且无错误）
+  const completedAnalyses = analyses.filter(a => a.processed && !a.error)
+  // 获取正在处理的分析（处理中且未超时）
+  const processingAnalyses = analyses.filter(a => {
+    if (!a.processing || a.processed) return false
+    const createdAt = new Date(a.created_at).getTime()
+    const ageMinutes = (Date.now() - createdAt) / (1000 * 60)
+    return ageMinutes <= 10 // 只显示10分钟内的处理中任务
+  })
+  // 获取卡住的任务（超过10分钟仍在处理）
+  const staleAnalyses = analyses.filter(a => {
+    if (!a.processing || a.processed) return false
+    const createdAt = new Date(a.created_at).getTime()
+    const ageMinutes = (Date.now() - createdAt) / (1000 * 60)
+    return ageMinutes > 10
+  })
 
   // 获取Beat/Miss图标
   const getBeatMissIcon = (beatMiss?: string) => {
@@ -230,17 +289,42 @@ export default function DashboardClient() {
       </header>
 
       <main className="max-w-7xl mx-auto px-6 py-8">
-        {/* Processing Banner */}
-        {processingCount > 0 && (
+        {/* Processing Banner - 只在有有效处理中任务时显示 */}
+        {processingAnalyses.length > 0 && (
           <div className="mb-6 bg-gradient-to-r from-amber-500 to-orange-500 rounded-2xl p-5 text-white shadow-xl shadow-orange-500/20">
             <div className="flex items-center gap-4">
               <div className="h-12 w-12 rounded-xl bg-white/20 flex items-center justify-center backdrop-blur-sm">
                 <Loader2 className="h-6 w-6 animate-spin" />
               </div>
               <div>
-                <p className="font-semibold text-lg">正在分析 {processingCount} 份财报</p>
+                <p className="font-semibold text-lg">正在分析 {processingAnalyses.length} 份财报</p>
                 <p className="text-amber-100 text-sm">AI正在深度分析财报内容，请稍候...</p>
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* Stale Tasks Warning */}
+        {staleAnalyses.length > 0 && (
+          <div className="mb-6 bg-red-50 border border-red-200 rounded-xl p-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="h-10 w-10 rounded-lg bg-red-100 flex items-center justify-center">
+                  <Trash2 className="h-5 w-5 text-red-600" />
+                </div>
+                <div>
+                  <p className="font-medium text-red-800">发现 {staleAnalyses.length} 个卡住的任务</p>
+                  <p className="text-sm text-red-600">这些任务已超过10分钟未完成，建议清理</p>
+                </div>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                className="border-red-300 text-red-700 hover:bg-red-100"
+                onClick={cleanupStaleAnalyses}
+              >
+                清理无效任务
+              </Button>
             </div>
           </div>
         )}
@@ -271,7 +355,7 @@ export default function DashboardClient() {
         </div>
 
         {/* Upload Area (when empty) */}
-        {completedAnalyses.length === 0 && processingCount === 0 && !isLoading && (
+        {completedAnalyses.length === 0 && processingAnalyses.length === 0 && !isLoading && (
           <div className="mb-8">
             <button 
               onClick={() => setIsUploadOpen(true)}
@@ -291,7 +375,7 @@ export default function DashboardClient() {
         )}
 
         {/* Company Cards Grid */}
-        {completedAnalyses.length > 0 && (
+        {(completedAnalyses.length > 0 || processingAnalyses.length > 0) && (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {/* Add New Card */}
             <button 
@@ -305,7 +389,30 @@ export default function DashboardClient() {
               <p className="text-sm text-slate-500 mt-1">上传财报 + 研报</p>
             </button>
 
-            {/* Analysis Cards */}
+            {/* Processing Cards */}
+            {processingAnalyses.map((analysis) => (
+              <div
+                key={analysis.id}
+                className="p-6 bg-white/70 rounded-2xl border border-slate-200 animate-pulse min-h-[280px] flex flex-col"
+              >
+                <div className="flex items-start justify-between mb-4">
+                  <div className="flex items-center gap-3">
+                    <div className="h-12 w-12 rounded-xl bg-slate-200 flex items-center justify-center">
+                      <Loader2 className="h-5 w-5 text-slate-400 animate-spin" />
+                    </div>
+                    <div>
+                      <h3 className="font-semibold text-slate-700">{analysis.company_name || '分析中...'}</h3>
+                      <p className="text-xs text-slate-500">{analysis.period}</p>
+                    </div>
+                  </div>
+                </div>
+                <div className="flex-1 flex items-center justify-center">
+                  <p className="text-sm text-slate-500">AI正在分析中...</p>
+                </div>
+              </div>
+            ))}
+
+            {/* Completed Analysis Cards */}
             {completedAnalyses.map((analysis) => {
               const conclusions = getThreeConclusions(analysis)
               const beatMiss = analysis.comparison_snapshot?.beat_miss || analysis.final_judgment?.net_impact
@@ -379,31 +486,6 @@ export default function DashboardClient() {
           </div>
         )}
 
-        {/* Processing Cards */}
-        {processingAnalyses.length > 0 && (
-          <div className="mt-8">
-            <h2 className="text-sm font-medium text-slate-500 mb-4">正在处理</h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {processingAnalyses.map((analysis) => (
-                <div
-                  key={analysis.id}
-                  className="p-5 bg-white/70 rounded-xl border border-slate-200 animate-pulse"
-                >
-                  <div className="flex items-center gap-3">
-                    <div className="h-10 w-10 rounded-lg bg-slate-200 flex items-center justify-center">
-                      <Loader2 className="h-5 w-5 text-slate-400 animate-spin" />
-                    </div>
-                    <div>
-                      <p className="font-medium text-slate-700">{analysis.company_name || '分析中...'}</p>
-                      <p className="text-xs text-slate-500">{analysis.period}</p>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
         {/* Loading State */}
         {isLoading && (
           <div className="flex items-center justify-center py-20">
@@ -417,7 +499,8 @@ export default function DashboardClient() {
         isOpen={isUploadOpen}
         onClose={() => setIsUploadOpen(false)}
         onSuccess={() => {
-          loadDashboardData()
+          // 上传成功后立即刷新
+          loadDashboardData(true)
         }}
       />
 
