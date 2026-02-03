@@ -42,6 +42,31 @@ export async function POST(request: NextRequest) {
   }
 }
 
+// Clear ALL reports (use with caution)
+export async function DELETE(request: NextRequest) {
+  try {
+    const session = await getServerSession(authOptions)
+    if (!session) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    await analysisStore.clear()
+    
+    console.log('[Clean API] Cleared ALL reports')
+    
+    return NextResponse.json({ 
+      success: true, 
+      message: 'All reports cleared'
+    })
+  } catch (error: any) {
+    console.error('Clear all reports error:', error)
+    return NextResponse.json(
+      { error: error.message || 'Failed to clear reports' },
+      { status: 500 }
+    )
+  }
+}
+
 // Get count of stale reports
 export async function GET(request: NextRequest) {
   try {
