@@ -52,17 +52,20 @@ export default function UploadModal({ isOpen, onClose, onSuccess }: UploadModalP
   const [analysisStatus, setAnalysisStatus] = useState<AnalysisStatus>('idle')
   const [errorMessage, setErrorMessage] = useState<string>('')
   
+  // ★★★ 防重复提交的关键状态 ★★★
   const isSubmittingRef = useRef(false)
-  const submissionIdRef = useRef<string | null>(null)
+  const currentRequestIdRef = useRef<string | null>(null)
   const abortControllerRef = useRef<AbortController | null>(null)
 
   useEffect(() => {
     if (!isOpen) {
+      // 关闭时取消正在进行的请求
       if (abortControllerRef.current) {
         abortControllerRef.current.abort()
         abortControllerRef.current = null
       }
       
+      // 只有在没有正在提交时才重置状态
       if (!isSubmittingRef.current) {
         setFinancialFiles([])
         setResearchFiles([])
@@ -71,7 +74,7 @@ export default function UploadModal({ isOpen, onClose, onSuccess }: UploadModalP
         setSelectedQuarter(4)
         setAnalysisStatus('idle')
         setErrorMessage('')
-        submissionIdRef.current = null
+        currentRequestIdRef.current = null
       }
     }
   }, [isOpen])
@@ -119,7 +122,11 @@ export default function UploadModal({ isOpen, onClose, onSuccess }: UploadModalP
   }
 
   const handleSubmit = async () => {
-    if (isSubmittingRef.current) return
+    // ★★★ 严格的防重复提交检查 ★★★
+    if (isSubmittingRef.current) {
+      console.log('[前端] ⚠️ 阻止重复提交：isSubmittingRef.current = true')
+      return
+    }
 
     if (financialFiles.length === 0) {
       toast({
@@ -139,9 +146,16 @@ export default function UploadModal({ isOpen, onClose, onSuccess }: UploadModalP
       return
     }
 
+    // ★★★ 设置提交锁 ★★★
     isSubmittingRef.current = true
-    const currentSubmissionId = `submit_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
-    submissionIdRef.current = currentSubmissionId
+    
+    // 生成唯一的请求ID
+    const requestId = `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+    currentRequestIdRef.current = requestId
+    
+    console.log('[前端] ========================================')
+    console.log('[前端] 开始提交，requestId:', requestId)
+    
     abortControllerRef.current = new AbortController()
 
     setAnalysisStatus('uploading')
@@ -151,31 +165,41 @@ export default function UploadModal({ isOpen, onClose, onSuccess }: UploadModalP
       const formData = new FormData()
       
       financialFiles.forEach((item) => {
-        formData.append(`financialFiles`, item.file)
+        formData.append('financialFiles', item.file)
       })
       
       researchFiles.forEach((item) => {
-        formData.append(`researchFiles`, item.file)
+        formData.append('researchFiles', item.file)
       })
       
       formData.append('category', selectedCategory)
-      formData.append('requestId', currentSubmissionId)
+      formData.append('requestId', requestId)
       formData.append('fiscalYear', selectedYear.toString())
       formData.append('fiscalQuarter', selectedQuarter.toString())
 
-      setTimeout(() => {
-        if (submissionIdRef.current === currentSubmissionId) {
+      // 1.5秒后切换到分析状态
+      const statusTimeout = setTimeout(() => {
+        if (currentRequestIdRef.current === requestId) {
           setAnalysisStatus('analyzing')
         }
       }, 1500)
 
+      console.log('[前端] 发送请求到 /api/reports/upload')
       const response = await fetch('/api/reports/upload', {
         method: 'POST',
         body: formData,
         signal: abortControllerRef.current.signal,
       })
 
-      if (submissionIdRef.current !== currentSubmissionId) return
+      clearTimeout(statusTimeout)
+
+      // 检查是否是当前请求
+      if (currentRequestIdRef.current !== requestId) {
+        console.log('[前端] ⚠️ 请求ID不匹配，忽略响应')
+        return
+      }
+
+      console.log('[前端] 收到响应，状态:', response.status)
 
       if (!response.ok) {
         const result = await response.json()
@@ -183,6 +207,7 @@ export default function UploadModal({ isOpen, onClose, onSuccess }: UploadModalP
       }
 
       const result = await response.json()
+      console.log('[前端] ✓ 分析成功，analysis_id:', result.analysis_id)
       
       setAnalysisStatus('success')
       
@@ -193,8 +218,9 @@ export default function UploadModal({ isOpen, onClose, onSuccess }: UploadModalP
       
       onSuccess()
       
+      // 1.5秒后关闭并重置
       setTimeout(() => {
-        if (submissionIdRef.current === currentSubmissionId) {
+        if (currentRequestIdRef.current === requestId) {
           setFinancialFiles([])
           setResearchFiles([])
           setSelectedCategory(null)
@@ -202,14 +228,23 @@ export default function UploadModal({ isOpen, onClose, onSuccess }: UploadModalP
           setSelectedQuarter(4)
           setAnalysisStatus('idle')
           isSubmittingRef.current = false
-          submissionIdRef.current = null
+          currentRequestIdRef.current = null
           onClose()
         }
       }, 1500)
       
     } catch (error: any) {
-      if (error.name === 'AbortError') return
-      if (submissionIdRef.current !== currentSubmissionId) return
+      if (error.name === 'AbortError') {
+        console.log('[前端] 请求被取消')
+        return
+      }
+      
+      if (currentRequestIdRef.current !== requestId) {
+        console.log('[前端] ⚠️ 请求ID不匹配，忽略错误')
+        return
+      }
+      
+      console.error('[前端] ✗ 提交失败:', error.message)
       
       setAnalysisStatus('error')
       setErrorMessage(error.message || '分析失败')
@@ -220,9 +255,11 @@ export default function UploadModal({ isOpen, onClose, onSuccess }: UploadModalP
         variant: 'destructive',
       })
       
+      // 失败后释放提交锁，允许重试
       isSubmittingRef.current = false
     } finally {
       abortControllerRef.current = null
+      console.log('[前端] ========================================')
     }
   }
 
@@ -313,61 +350,54 @@ export default function UploadModal({ isOpen, onClose, onSuccess }: UploadModalP
                 <div className="grid grid-cols-2 gap-3">
                   {/* Year Selection */}
                   <div>
-                    <label className="block text-xs text-slate-500 mb-1.5">年份</label>
                     <select
                       value={selectedYear}
                       onChange={(e) => setSelectedYear(parseInt(e.target.value))}
-                      className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
+                      className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                     >
-                      {YEAR_OPTIONS.map((year) => (
+                      {YEAR_OPTIONS.map(year => (
                         <option key={year} value={year}>{year}年</option>
                       ))}
                     </select>
                   </div>
                   {/* Quarter Selection */}
                   <div>
-                    <label className="block text-xs text-slate-500 mb-1.5">季度</label>
-                    <div className="flex gap-1.5">
-                      {QUARTER_OPTIONS.map((q) => (
-                        <button
-                          key={q.value}
-                          onClick={() => setSelectedQuarter(q.value)}
-                          className={`flex-1 py-2.5 rounded-lg text-sm font-medium transition-all ${
-                            selectedQuarter === q.value
-                              ? 'bg-orange-500 text-white'
-                              : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                          }`}
-                        >
-                          {q.label}
-                        </button>
+                    <select
+                      value={selectedQuarter}
+                      onChange={(e) => setSelectedQuarter(parseInt(e.target.value))}
+                      className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      {QUARTER_OPTIONS.map(q => (
+                        <option key={q.value} value={q.value}>{q.label}</option>
                       ))}
-                    </div>
+                    </select>
                   </div>
                 </div>
               </div>
 
-              {/* Company Category */}
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-3">公司分类</label>
                 <div className="grid grid-cols-2 gap-3">
-                  {Object.entries(COMPANY_CATEGORIES).map(([key, category]) => {
-                    const Icon = category.icon
+                  {Object.entries(COMPANY_CATEGORIES).map(([key, value]) => {
+                    const Icon = value.icon
                     const isSelected = selectedCategory === key
                     return (
                       <button
                         key={key}
                         onClick={() => setSelectedCategory(key as 'AI_APPLICATION' | 'AI_SUPPLY_CHAIN')}
-                        className={`p-4 rounded-xl border-2 text-left transition-all ${
+                        className={`p-3 rounded-xl border-2 text-left transition-all ${
                           isSelected 
                             ? 'border-blue-500 bg-blue-50' 
                             : 'border-slate-200 hover:border-slate-300'
                         }`}
                       >
-                        <Icon className={`h-5 w-5 mb-2 ${isSelected ? 'text-blue-600' : 'text-slate-400'}`} />
-                        <p className={`font-medium ${isSelected ? 'text-blue-900' : 'text-slate-700'}`}>
-                          {category.name}
-                        </p>
-                        <p className="text-xs text-slate-500 mt-1">{category.description}</p>
+                        <div className="flex items-center gap-2 mb-1">
+                          <Icon className={`h-4 w-4 ${isSelected ? 'text-blue-600' : 'text-slate-400'}`} />
+                          <span className={`text-sm font-medium ${isSelected ? 'text-blue-900' : 'text-slate-700'}`}>
+                            {value.name}
+                          </span>
+                        </div>
+                        <p className="text-xs text-slate-500">{value.description}</p>
                       </button>
                     )
                   })}
@@ -380,7 +410,7 @@ export default function UploadModal({ isOpen, onClose, onSuccess }: UploadModalP
                   <FileBarChart className="h-4 w-4 text-blue-500" />
                   财报文件 <span className="text-red-500">*</span>
                 </label>
-                <p className="text-xs text-slate-500 mb-3">10-K、10-Q、Earnings Call Transcript 等</p>
+                <p className="text-xs text-slate-500 mb-3">季度财报 (10-Q) 或年度财报 (10-K)</p>
                 
                 <div className="border-2 border-dashed border-slate-200 rounded-xl p-4 hover:border-blue-300 transition-colors">
                   <input
@@ -393,7 +423,7 @@ export default function UploadModal({ isOpen, onClose, onSuccess }: UploadModalP
                   />
                   <label htmlFor="financial-upload" className="cursor-pointer block text-center">
                     <Upload className="h-8 w-8 text-slate-400 mx-auto mb-2" />
-                    <p className="text-sm text-slate-600">点击上传PDF文件</p>
+                    <p className="text-sm text-slate-600">点击上传财报PDF</p>
                   </label>
                 </div>
 
