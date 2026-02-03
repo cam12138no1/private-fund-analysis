@@ -248,11 +248,25 @@ class AnalysisStore {
     if (this.useBlob) {
       try {
         const { blobs } = await list({ prefix: BLOB_PREFIX })
-        const analyses: StoredAnalysis[] = []
         
+        // ★★★ 关键修复：Vercel Blob 的 list() 可能返回同一文件的多个版本 ★★★
+        // 按 pathname 去重，只保留最新的版本（uploadedAt 最大）
+        const latestBlobMap = new Map<string, typeof blobs[0]>()
         for (const blob of blobs) {
           if (blob.pathname.endsWith('_index.json')) continue
           
+          const existing = latestBlobMap.get(blob.pathname)
+          if (!existing || new Date(blob.uploadedAt) > new Date(existing.uploadedAt)) {
+            latestBlobMap.set(blob.pathname, blob)
+          }
+        }
+        
+        const uniqueBlobs = Array.from(latestBlobMap.values())
+        console.log(`[Blob] Found ${blobs.length} blobs, ${uniqueBlobs.length} unique after dedup`)
+        
+        const analyses: StoredAnalysis[] = []
+        
+        for (const blob of uniqueBlobs) {
           try {
             const response = await fetch(blob.url)
             if (response.ok) {
