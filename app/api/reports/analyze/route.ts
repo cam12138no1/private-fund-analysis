@@ -220,8 +220,10 @@ export async function POST(request: NextRequest) {
     // ★★★ 更新记录 ★★★
     console.log('[分析] 更新记录...')
     await analysisStore.update(processingId, {
-      analysis: analysisResult,
+      processed: true,
       processing: false,
+      error: undefined,
+      ...analysisResult,
     })
     console.log('[分析] 记录更新完成')
 
