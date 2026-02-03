@@ -195,6 +195,7 @@ export async function POST(request: NextRequest) {
       category: category || undefined,
       filing_date: metadata.filing_date,
       created_at: new Date().toISOString(),
+      processed: false,
       processing: true,
     })
     processingId = processingEntry.id
