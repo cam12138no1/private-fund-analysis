@@ -104,6 +104,12 @@ export async function POST(request: NextRequest) {
     // Get research report files (optional)
     const researchFiles = formData.getAll('researchFiles') as File[]
     const category = formData.get('category') as string | null
+    
+    // Get fiscal year and quarter from form (user selected)
+    const userFiscalYear = formData.get('fiscalYear') as string | null
+    const userFiscalQuarter = formData.get('fiscalQuarter') as string | null
+    const parsedFiscalYear = userFiscalYear ? parseInt(userFiscalYear) : null
+    const parsedFiscalQuarter = userFiscalQuarter ? parseInt(userFiscalQuarter) : null
 
     // Backward compatibility: also check for single 'file' field
     const singleFile = formData.get('file') as File | null
@@ -211,13 +217,22 @@ export async function POST(request: NextRequest) {
       }, { status: 500 })
     }
 
+    // Use user-selected fiscal year/quarter if provided, otherwise use AI-extracted metadata
+    const finalFiscalYear = parsedFiscalYear || metadata.fiscal_year
+    const finalFiscalQuarter = parsedFiscalQuarter || metadata.fiscal_quarter
+    const period = finalFiscalQuarter 
+      ? `Q${finalFiscalQuarter} ${finalFiscalYear}` 
+      : `FY ${finalFiscalYear}`
+
     // Create processing entry so frontend can see progress
     const processingEntry = await analysisStore.add({
       company_name: metadata.company_name,
       company_symbol: metadata.company_symbol,
       report_type: metadata.report_type,
-      fiscal_year: metadata.fiscal_year,
-      fiscal_quarter: metadata.fiscal_quarter || undefined,
+      fiscal_year: finalFiscalYear,
+      fiscal_quarter: finalFiscalQuarter || undefined,
+      period: period,
+      category: selectedCategory || undefined,
       filing_date: metadata.filing_date,
       created_at: new Date().toISOString(),
       processed: false,
@@ -247,11 +262,9 @@ export async function POST(request: NextRequest) {
         {
           company: metadata.company_name,
           symbol: metadata.company_symbol,
-          period: metadata.fiscal_quarter 
-            ? `Q${metadata.fiscal_quarter} ${metadata.fiscal_year}` 
-            : `FY ${metadata.fiscal_year}`,
-          fiscalYear: metadata.fiscal_year,
-          fiscalQuarter: metadata.fiscal_quarter || undefined,
+          period: period,
+          fiscalYear: finalFiscalYear,
+          fiscalQuarter: finalFiscalQuarter || undefined,
           consensus: {
             revenue: metadata.revenue || undefined,
             eps: metadata.eps || undefined,

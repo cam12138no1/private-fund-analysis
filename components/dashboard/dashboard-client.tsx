@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useEffect, useRef, useCallback } from 'react'
-import { Plus, Upload, Loader2, TrendingUp, TrendingDown, Minus, ChevronRight, FileText, Building2, Trash2 } from 'lucide-react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
+import { Plus, Upload, Loader2, TrendingUp, TrendingDown, Minus, ChevronRight, FileText, Building2, Cpu, Trash2, Filter, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import UploadModal from './upload-modal'
 import AnalysisModal from './analysis-modal'
@@ -12,6 +12,8 @@ interface Analysis {
   company_symbol: string
   period: string
   category: string
+  fiscal_year?: number
+  fiscal_quarter?: number
   processed: boolean
   processing?: boolean
   error?: string
@@ -96,6 +98,14 @@ interface Analysis {
   }
 }
 
+type CategoryFilter = 'ALL' | 'AI_APPLICATION' | 'AI_SUPPLY_CHAIN'
+
+const CATEGORY_OPTIONS = [
+  { value: 'ALL' as CategoryFilter, label: '全部', icon: null },
+  { value: 'AI_APPLICATION' as CategoryFilter, label: 'AI应用', icon: Building2 },
+  { value: 'AI_SUPPLY_CHAIN' as CategoryFilter, label: 'AI供应链', icon: Cpu },
+]
+
 export default function DashboardClient() {
   const [isUploadOpen, setIsUploadOpen] = useState(false)
   const [selectedAnalysis, setSelectedAnalysis] = useState<Analysis | null>(null)
@@ -103,6 +113,11 @@ export default function DashboardClient() {
   const [isLoading, setIsLoading] = useState(true)
   const pollIntervalRef = useRef<NodeJS.Timeout | null>(null)
   const lastFetchRef = useRef<number>(0)
+
+  // 筛选状态
+  const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>('ALL')
+  const [yearFilter, setYearFilter] = useState<number | null>(null)
+  const [quarterFilter, setQuarterFilter] = useState<number | null>(null)
 
   // 加载数据
   const loadDashboardData = useCallback(async (force: boolean = false) => {
@@ -220,6 +235,81 @@ export default function DashboardClient() {
     return ageMinutes > 10
   })
 
+  // 获取可用的年份和季度选项
+  const availableYears = useMemo(() => {
+    const years = new Set<number>()
+    completedAnalyses.forEach(a => {
+      if (a.fiscal_year) {
+        years.add(a.fiscal_year)
+      } else {
+        // 从period字段解析年份，如 "Q4 2025"
+        const match = a.period?.match(/(\d{4})/)
+        if (match) {
+          years.add(parseInt(match[1]))
+        }
+      }
+    })
+    return Array.from(years).sort((a, b) => b - a)
+  }, [completedAnalyses])
+
+  const availableQuarters = useMemo(() => {
+    const quarters = new Set<number>()
+    completedAnalyses.forEach(a => {
+      if (a.fiscal_quarter) {
+        quarters.add(a.fiscal_quarter)
+      } else {
+        // 从period字段解析季度，如 "Q4 2025"
+        const match = a.period?.match(/Q(\d)/)
+        if (match) {
+          quarters.add(parseInt(match[1]))
+        }
+      }
+    })
+    return Array.from(quarters).sort((a, b) => a - b)
+  }, [completedAnalyses])
+
+  // 应用筛选
+  const filteredAnalyses = useMemo(() => {
+    return completedAnalyses.filter(a => {
+      // 分类筛选
+      if (categoryFilter !== 'ALL') {
+        if (a.category !== categoryFilter) return false
+      }
+      
+      // 年份筛选
+      if (yearFilter !== null) {
+        const year = a.fiscal_year || parseInt(a.period?.match(/(\d{4})/)?.[1] || '0')
+        if (year !== yearFilter) return false
+      }
+      
+      // 季度筛选
+      if (quarterFilter !== null) {
+        const quarter = a.fiscal_quarter || parseInt(a.period?.match(/Q(\d)/)?.[1] || '0')
+        if (quarter !== quarterFilter) return false
+      }
+      
+      return true
+    })
+  }, [completedAnalyses, categoryFilter, yearFilter, quarterFilter])
+
+  // 按分类分组
+  const groupedAnalyses = useMemo(() => {
+    const aiApp = filteredAnalyses.filter(a => a.category === 'AI_APPLICATION')
+    const aiSupply = filteredAnalyses.filter(a => a.category === 'AI_SUPPLY_CHAIN')
+    const other = filteredAnalyses.filter(a => !a.category || (a.category !== 'AI_APPLICATION' && a.category !== 'AI_SUPPLY_CHAIN'))
+    return { aiApp, aiSupply, other }
+  }, [filteredAnalyses])
+
+  // 是否有任何筛选条件
+  const hasFilters = categoryFilter !== 'ALL' || yearFilter !== null || quarterFilter !== null
+
+  // 清除所有筛选
+  const clearFilters = () => {
+    setCategoryFilter('ALL')
+    setYearFilter(null)
+    setQuarterFilter(null)
+  }
+
   // 获取Beat/Miss图标
   const getBeatMissIcon = (beatMiss?: string) => {
     if (!beatMiss) return <Minus className="h-4 w-4 text-gray-400" />
@@ -260,6 +350,109 @@ export default function DashboardClient() {
     }
     
     return conclusions.slice(0, 3)
+  }
+
+  // 渲染分析卡片
+  const renderAnalysisCard = (analysis: Analysis) => {
+    const conclusions = getThreeConclusions(analysis)
+    const beatMiss = analysis.comparison_snapshot?.beat_miss || analysis.final_judgment?.net_impact
+    const recommendation = analysis.comparison_snapshot?.recommendation || analysis.final_judgment?.recommendation
+
+    return (
+      <button
+        key={analysis.id}
+        onClick={() => setSelectedAnalysis(analysis)}
+        className="p-6 bg-white rounded-2xl border border-slate-200 hover:border-blue-300 hover:shadow-xl hover:shadow-blue-500/10 transition-all text-left group"
+      >
+        {/* Header */}
+        <div className="flex items-start justify-between mb-4">
+          <div className="flex items-center gap-3">
+            <div className="h-12 w-12 rounded-xl bg-gradient-to-br from-slate-100 to-slate-200 flex items-center justify-center font-bold text-slate-600 text-sm">
+              {analysis.company_symbol?.slice(0, 4) || 'N/A'}
+            </div>
+            <div>
+              <h3 className="font-semibold text-slate-900 group-hover:text-blue-600 transition-colors">
+                {analysis.company_name}
+              </h3>
+              <div className="flex items-center gap-2">
+                <p className="text-xs text-slate-500">{analysis.period}</p>
+                {analysis.category && (
+                  <span className={`text-xs px-1.5 py-0.5 rounded ${
+                    analysis.category === 'AI_APPLICATION' 
+                      ? 'bg-blue-50 text-blue-600' 
+                      : 'bg-purple-50 text-purple-600'
+                  }`}>
+                    {analysis.category === 'AI_APPLICATION' ? '应用' : '供应链'}
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+          <ChevronRight className="h-5 w-5 text-slate-300 group-hover:text-blue-500 transition-colors" />
+        </div>
+
+        {/* Beat/Miss & Recommendation */}
+        <div className="flex items-center gap-2 mb-4">
+          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-100">
+            {getBeatMissIcon(beatMiss)}
+            <span className="text-xs font-medium text-slate-600">
+              {beatMiss?.replace('Strong ', '').replace('Moderate ', '') || 'Inline'}
+            </span>
+          </div>
+          {recommendation && (
+            <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${getRecommendationColor(recommendation)}`}>
+              {recommendation}
+            </span>
+          )}
+        </div>
+
+        {/* 3 Key Conclusions */}
+        <div className="space-y-2">
+          {conclusions.map((conclusion, idx) => (
+            <p 
+              key={idx} 
+              className="text-sm text-slate-600 line-clamp-2 leading-relaxed"
+            >
+              {conclusion}
+            </p>
+          ))}
+          {conclusions.length === 0 && (
+            <p className="text-sm text-slate-400 italic">分析结果加载中...</p>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="mt-4 pt-4 border-t border-slate-100">
+          <p className="text-xs text-slate-400">
+            {new Date(analysis.created_at).toLocaleDateString('zh-CN', {
+              year: 'numeric',
+              month: 'short',
+              day: 'numeric',
+            })}
+          </p>
+        </div>
+      </button>
+    )
+  }
+
+  // 渲染分类区块
+  const renderCategorySection = (title: string, icon: React.ReactNode, analyses: Analysis[], bgColor: string) => {
+    if (analyses.length === 0) return null
+    
+    return (
+      <div className="mb-8">
+        <div className="flex items-center gap-2 mb-4">
+          <div className={`h-8 w-8 rounded-lg ${bgColor} flex items-center justify-center`}>
+            {icon}
+          </div>
+          <h2 className="text-lg font-semibold text-slate-800">{title}</h2>
+          <span className="text-sm text-slate-500">({analyses.length})</span>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {analyses.map(renderAnalysisCard)}
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -329,30 +522,104 @@ export default function DashboardClient() {
           </div>
         )}
 
-        {/* Stats */}
-        <div className="mb-8 flex items-center gap-6">
-          <div className="flex items-center gap-2">
-            <div className="h-8 w-8 rounded-lg bg-blue-100 flex items-center justify-center">
-              <FileText className="h-4 w-4 text-blue-600" />
+        {/* Stats & Filters */}
+        <div className="mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          {/* Stats */}
+          <div className="flex items-center gap-6">
+            <div className="flex items-center gap-2">
+              <div className="h-8 w-8 rounded-lg bg-blue-100 flex items-center justify-center">
+                <FileText className="h-4 w-4 text-blue-600" />
+              </div>
+              <div>
+                <p className="text-2xl font-bold text-slate-900">{completedAnalyses.length}</p>
+                <p className="text-xs text-slate-500">已分析</p>
+              </div>
             </div>
-            <div>
-              <p className="text-2xl font-bold text-slate-900">{completedAnalyses.length}</p>
-              <p className="text-xs text-slate-500">已分析</p>
+            <div className="h-8 w-px bg-slate-200" />
+            <div className="flex items-center gap-2">
+              <div className="h-8 w-8 rounded-lg bg-green-100 flex items-center justify-center">
+                <Building2 className="h-4 w-4 text-green-600" />
+              </div>
+              <div>
+                <p className="text-2xl font-bold text-slate-900">
+                  {new Set(completedAnalyses.map(a => a.company_symbol)).size}
+                </p>
+                <p className="text-xs text-slate-500">家公司</p>
+              </div>
             </div>
           </div>
-          <div className="h-8 w-px bg-slate-200" />
-          <div className="flex items-center gap-2">
-            <div className="h-8 w-8 rounded-lg bg-green-100 flex items-center justify-center">
-              <Building2 className="h-4 w-4 text-green-600" />
+
+          {/* Filters */}
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex items-center gap-1 text-sm text-slate-500">
+              <Filter className="h-4 w-4" />
+              <span>筛选:</span>
             </div>
-            <div>
-              <p className="text-2xl font-bold text-slate-900">
-                {new Set(completedAnalyses.map(a => a.company_symbol)).size}
-              </p>
-              <p className="text-xs text-slate-500">家公司</p>
+            
+            {/* Category Filter */}
+            <div className="flex rounded-lg bg-slate-100 p-0.5">
+              {CATEGORY_OPTIONS.map((opt) => (
+                <button
+                  key={opt.value}
+                  onClick={() => setCategoryFilter(opt.value)}
+                  className={`px-3 py-1.5 rounded-md text-sm font-medium transition-all ${
+                    categoryFilter === opt.value
+                      ? 'bg-white text-slate-900 shadow-sm'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
             </div>
+
+            {/* Year Filter */}
+            {availableYears.length > 0 && (
+              <select
+                value={yearFilter ?? ''}
+                onChange={(e) => setYearFilter(e.target.value ? parseInt(e.target.value) : null)}
+                className="px-3 py-1.5 rounded-lg bg-slate-100 text-sm font-medium text-slate-700 border-0 focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="">全部年份</option>
+                {availableYears.map((year) => (
+                  <option key={year} value={year}>{year}年</option>
+                ))}
+              </select>
+            )}
+
+            {/* Quarter Filter */}
+            {availableQuarters.length > 0 && (
+              <select
+                value={quarterFilter ?? ''}
+                onChange={(e) => setQuarterFilter(e.target.value ? parseInt(e.target.value) : null)}
+                className="px-3 py-1.5 rounded-lg bg-slate-100 text-sm font-medium text-slate-700 border-0 focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="">全部季度</option>
+                {availableQuarters.map((q) => (
+                  <option key={q} value={q}>Q{q}</option>
+                ))}
+              </select>
+            )}
+
+            {/* Clear Filters */}
+            {hasFilters && (
+              <button
+                onClick={clearFilters}
+                className="flex items-center gap-1 px-2 py-1.5 text-sm text-slate-500 hover:text-slate-700"
+              >
+                <X className="h-3.5 w-3.5" />
+                清除
+              </button>
+            )}
           </div>
         </div>
+
+        {/* Filter Results Info */}
+        {hasFilters && (
+          <div className="mb-4 text-sm text-slate-500">
+            显示 {filteredAnalyses.length} / {completedAnalyses.length} 条结果
+          </div>
+        )}
 
         {/* Upload Area (when empty) */}
         {completedAnalyses.length === 0 && processingAnalyses.length === 0 && !isLoading && (
@@ -374,116 +641,101 @@ export default function DashboardClient() {
           </div>
         )}
 
-        {/* Company Cards Grid */}
-        {(completedAnalyses.length > 0 || processingAnalyses.length > 0) && (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {/* Add New Card */}
-            <button 
-              onClick={() => setIsUploadOpen(true)}
-              className="p-6 bg-white/50 rounded-2xl border-2 border-dashed border-slate-300 hover:border-blue-400 hover:bg-blue-50/50 transition-all group min-h-[280px] flex flex-col items-center justify-center"
-            >
-              <div className="h-14 w-14 rounded-xl bg-blue-100 flex items-center justify-center group-hover:bg-blue-200 transition-colors mb-4">
-                <Plus className="h-7 w-7 text-blue-600" />
-              </div>
-              <p className="font-semibold text-slate-700">添加新分析</p>
-              <p className="text-sm text-slate-500 mt-1">上传财报 + 研报</p>
-            </button>
-
+        {/* Company Cards - Grouped by Category */}
+        {(filteredAnalyses.length > 0 || processingAnalyses.length > 0) && (
+          <>
             {/* Processing Cards */}
-            {processingAnalyses.map((analysis) => (
-              <div
-                key={analysis.id}
-                className="p-6 bg-white/70 rounded-2xl border border-slate-200 animate-pulse min-h-[280px] flex flex-col"
-              >
-                <div className="flex items-start justify-between mb-4">
-                  <div className="flex items-center gap-3">
-                    <div className="h-12 w-12 rounded-xl bg-slate-200 flex items-center justify-center">
-                      <Loader2 className="h-5 w-5 text-slate-400 animate-spin" />
-                    </div>
-                    <div>
-                      <h3 className="font-semibold text-slate-700">{analysis.company_name || '分析中...'}</h3>
-                      <p className="text-xs text-slate-500">{analysis.period}</p>
-                    </div>
+            {processingAnalyses.length > 0 && (
+              <div className="mb-8">
+                <div className="flex items-center gap-2 mb-4">
+                  <div className="h-8 w-8 rounded-lg bg-amber-100 flex items-center justify-center">
+                    <Loader2 className="h-4 w-4 text-amber-600 animate-spin" />
                   </div>
+                  <h2 className="text-lg font-semibold text-slate-800">处理中</h2>
                 </div>
-                <div className="flex-1 flex items-center justify-center">
-                  <p className="text-sm text-slate-500">AI正在分析中...</p>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {processingAnalyses.map((analysis) => (
+                    <div
+                      key={analysis.id}
+                      className="p-6 bg-white/70 rounded-2xl border border-slate-200 animate-pulse min-h-[280px] flex flex-col"
+                    >
+                      <div className="flex items-start justify-between mb-4">
+                        <div className="flex items-center gap-3">
+                          <div className="h-12 w-12 rounded-xl bg-slate-200 flex items-center justify-center">
+                            <Loader2 className="h-5 w-5 text-slate-400 animate-spin" />
+                          </div>
+                          <div>
+                            <h3 className="font-semibold text-slate-700">{analysis.company_name || '分析中...'}</h3>
+                            <p className="text-xs text-slate-500">{analysis.period}</p>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex-1 flex items-center justify-center">
+                        <p className="text-sm text-slate-500">AI正在分析中...</p>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
-            ))}
+            )}
 
-            {/* Completed Analysis Cards */}
-            {completedAnalyses.map((analysis) => {
-              const conclusions = getThreeConclusions(analysis)
-              const beatMiss = analysis.comparison_snapshot?.beat_miss || analysis.final_judgment?.net_impact
-              const recommendation = analysis.comparison_snapshot?.recommendation || analysis.final_judgment?.recommendation
+            {/* Add New Card + Grouped Analysis Cards */}
+            {categoryFilter === 'ALL' ? (
+              <>
+                {/* AI Application Companies */}
+                {renderCategorySection(
+                  'AI应用公司',
+                  <Building2 className="h-4 w-4 text-blue-600" />,
+                  groupedAnalyses.aiApp,
+                  'bg-blue-100'
+                )}
 
-              return (
+                {/* AI Supply Chain Companies */}
+                {renderCategorySection(
+                  'AI供应链公司',
+                  <Cpu className="h-4 w-4 text-purple-600" />,
+                  groupedAnalyses.aiSupply,
+                  'bg-purple-100'
+                )}
+
+                {/* Other/Uncategorized */}
+                {groupedAnalyses.other.length > 0 && renderCategorySection(
+                  '其他',
+                  <FileText className="h-4 w-4 text-slate-600" />,
+                  groupedAnalyses.other,
+                  'bg-slate-100'
+                )}
+              </>
+            ) : (
+              // Filtered view - show as flat grid
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {filteredAnalyses.map(renderAnalysisCard)}
+              </div>
+            )}
+
+            {/* Empty Filter Results */}
+            {filteredAnalyses.length === 0 && completedAnalyses.length > 0 && (
+              <div className="text-center py-12">
+                <p className="text-slate-500">没有符合筛选条件的分析结果</p>
                 <button
-                  key={analysis.id}
-                  onClick={() => setSelectedAnalysis(analysis)}
-                  className="p-6 bg-white rounded-2xl border border-slate-200 hover:border-blue-300 hover:shadow-xl hover:shadow-blue-500/10 transition-all text-left group"
+                  onClick={clearFilters}
+                  className="mt-2 text-blue-600 hover:text-blue-700 text-sm"
                 >
-                  {/* Header */}
-                  <div className="flex items-start justify-between mb-4">
-                    <div className="flex items-center gap-3">
-                      <div className="h-12 w-12 rounded-xl bg-gradient-to-br from-slate-100 to-slate-200 flex items-center justify-center font-bold text-slate-600 text-sm">
-                        {analysis.company_symbol?.slice(0, 4) || 'N/A'}
-                      </div>
-                      <div>
-                        <h3 className="font-semibold text-slate-900 group-hover:text-blue-600 transition-colors">
-                          {analysis.company_name}
-                        </h3>
-                        <p className="text-xs text-slate-500">{analysis.period}</p>
-                      </div>
-                    </div>
-                    <ChevronRight className="h-5 w-5 text-slate-300 group-hover:text-blue-500 transition-colors" />
-                  </div>
-
-                  {/* Beat/Miss & Recommendation */}
-                  <div className="flex items-center gap-2 mb-4">
-                    <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-100">
-                      {getBeatMissIcon(beatMiss)}
-                      <span className="text-xs font-medium text-slate-600">
-                        {beatMiss?.replace('Strong ', '').replace('Moderate ', '') || 'Inline'}
-                      </span>
-                    </div>
-                    {recommendation && (
-                      <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${getRecommendationColor(recommendation)}`}>
-                        {recommendation}
-                      </span>
-                    )}
-                  </div>
-
-                  {/* 3 Key Conclusions */}
-                  <div className="space-y-2">
-                    {conclusions.map((conclusion, idx) => (
-                      <p 
-                        key={idx} 
-                        className="text-sm text-slate-600 line-clamp-2 leading-relaxed"
-                      >
-                        {conclusion}
-                      </p>
-                    ))}
-                    {conclusions.length === 0 && (
-                      <p className="text-sm text-slate-400 italic">分析结果加载中...</p>
-                    )}
-                  </div>
-
-                  {/* Footer */}
-                  <div className="mt-4 pt-4 border-t border-slate-100">
-                    <p className="text-xs text-slate-400">
-                      {new Date(analysis.created_at).toLocaleDateString('zh-CN', {
-                        year: 'numeric',
-                        month: 'short',
-                        day: 'numeric',
-                      })}
-                    </p>
-                  </div>
+                  清除筛选条件
                 </button>
-              )
-            })}
-          </div>
+              </div>
+            )}
+          </>
+        )}
+
+        {/* Add New Button - Fixed Position */}
+        {completedAnalyses.length > 0 && (
+          <button 
+            onClick={() => setIsUploadOpen(true)}
+            className="fixed bottom-8 right-8 h-14 w-14 rounded-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-xl shadow-blue-500/30 flex items-center justify-center transition-all hover:scale-110"
+          >
+            <Plus className="h-6 w-6" />
+          </button>
         )}
 
         {/* Loading State */}

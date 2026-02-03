@@ -11,6 +11,8 @@ export interface StoredAnalysis {
   report_type: string
   fiscal_year: number
   fiscal_quarter?: number
+  period?: string  // 格式化的期间，如 "Q4 2025"
+  category?: string  // 公司分类: AI_APPLICATION | AI_SUPPLY_CHAIN
   filing_date: string
   created_at: string
   processed: boolean

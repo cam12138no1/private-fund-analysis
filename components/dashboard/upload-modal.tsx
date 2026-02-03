@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useCallback, useEffect, useRef } from 'react'
-import { X, Upload, Loader2, FileText, CheckCircle2, AlertCircle, Trash2, Building2, Cpu, FileBarChart, BookOpen } from 'lucide-react'
+import { X, Upload, Loader2, FileText, CheckCircle2, AlertCircle, Trash2, Building2, Cpu, FileBarChart, BookOpen, Calendar } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { toast } from '@/components/ui/toaster'
 
@@ -31,10 +31,24 @@ const COMPANY_CATEGORIES = {
   }
 }
 
+// 年份选项：当前年份及前后各一年
+const currentYear = new Date().getFullYear()
+const YEAR_OPTIONS = [currentYear - 1, currentYear, currentYear + 1]
+
+// 季度选项
+const QUARTER_OPTIONS = [
+  { value: 1, label: 'Q1' },
+  { value: 2, label: 'Q2' },
+  { value: 3, label: 'Q3' },
+  { value: 4, label: 'Q4' },
+]
+
 export default function UploadModal({ isOpen, onClose, onSuccess }: UploadModalProps) {
   const [financialFiles, setFinancialFiles] = useState<FileItem[]>([])
   const [researchFiles, setResearchFiles] = useState<FileItem[]>([])
   const [selectedCategory, setSelectedCategory] = useState<'AI_APPLICATION' | 'AI_SUPPLY_CHAIN' | null>(null)
+  const [selectedYear, setSelectedYear] = useState<number>(currentYear)
+  const [selectedQuarter, setSelectedQuarter] = useState<number>(4) // 默认Q4
   const [analysisStatus, setAnalysisStatus] = useState<AnalysisStatus>('idle')
   const [errorMessage, setErrorMessage] = useState<string>('')
   
@@ -53,6 +67,8 @@ export default function UploadModal({ isOpen, onClose, onSuccess }: UploadModalP
         setFinancialFiles([])
         setResearchFiles([])
         setSelectedCategory(null)
+        setSelectedYear(currentYear)
+        setSelectedQuarter(4)
         setAnalysisStatus('idle')
         setErrorMessage('')
         submissionIdRef.current = null
@@ -144,6 +160,8 @@ export default function UploadModal({ isOpen, onClose, onSuccess }: UploadModalP
       
       formData.append('category', selectedCategory)
       formData.append('requestId', currentSubmissionId)
+      formData.append('fiscalYear', selectedYear.toString())
+      formData.append('fiscalQuarter', selectedQuarter.toString())
 
       setTimeout(() => {
         if (submissionIdRef.current === currentSubmissionId) {
@@ -180,6 +198,8 @@ export default function UploadModal({ isOpen, onClose, onSuccess }: UploadModalP
           setFinancialFiles([])
           setResearchFiles([])
           setSelectedCategory(null)
+          setSelectedYear(currentYear)
+          setSelectedQuarter(4)
           setAnalysisStatus('idle')
           isSubmittingRef.current = false
           submissionIdRef.current = null
@@ -217,7 +237,7 @@ export default function UploadModal({ isOpen, onClose, onSuccess }: UploadModalP
       />
       
       {/* Modal */}
-      <div className="absolute inset-x-4 top-[10%] md:inset-x-auto md:left-1/2 md:-translate-x-1/2 md:w-full md:max-w-lg bg-white rounded-2xl shadow-2xl overflow-hidden">
+      <div className="absolute inset-x-4 top-[5%] md:inset-x-auto md:left-1/2 md:-translate-x-1/2 md:w-full md:max-w-lg bg-white rounded-2xl shadow-2xl overflow-hidden">
         {/* Header */}
         <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
           <div>
@@ -235,7 +255,7 @@ export default function UploadModal({ isOpen, onClose, onSuccess }: UploadModalP
         </div>
 
         {/* Content */}
-        <div className="p-6 space-y-6 max-h-[70vh] overflow-y-auto">
+        <div className="p-6 space-y-5 max-h-[75vh] overflow-y-auto">
           {/* Status Display */}
           {isProcessing && (
             <div className="p-4 bg-blue-50 rounded-xl border border-blue-100">
@@ -284,6 +304,49 @@ export default function UploadModal({ isOpen, onClose, onSuccess }: UploadModalP
           {/* Company Category Selection */}
           {!isProcessing && analysisStatus !== 'success' && (
             <>
+              {/* Year and Quarter Selection */}
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-3 flex items-center gap-2">
+                  <Calendar className="h-4 w-4 text-orange-500" />
+                  报告期间
+                </label>
+                <div className="grid grid-cols-2 gap-3">
+                  {/* Year Selection */}
+                  <div>
+                    <label className="block text-xs text-slate-500 mb-1.5">年份</label>
+                    <select
+                      value={selectedYear}
+                      onChange={(e) => setSelectedYear(parseInt(e.target.value))}
+                      className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
+                    >
+                      {YEAR_OPTIONS.map((year) => (
+                        <option key={year} value={year}>{year}年</option>
+                      ))}
+                    </select>
+                  </div>
+                  {/* Quarter Selection */}
+                  <div>
+                    <label className="block text-xs text-slate-500 mb-1.5">季度</label>
+                    <div className="flex gap-1.5">
+                      {QUARTER_OPTIONS.map((q) => (
+                        <button
+                          key={q.value}
+                          onClick={() => setSelectedQuarter(q.value)}
+                          className={`flex-1 py-2.5 rounded-lg text-sm font-medium transition-all ${
+                            selectedQuarter === q.value
+                              ? 'bg-orange-500 text-white'
+                              : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                          }`}
+                        >
+                          {q.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Company Category */}
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-3">公司分类</label>
                 <div className="grid grid-cols-2 gap-3">
