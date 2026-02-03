@@ -156,18 +156,46 @@ export default function UploadModal({ isOpen, onClose, onSuccess }: UploadModalP
     
     console.log(`[Blob上传] 开始上传: ${file.name} (${(file.size / 1024 / 1024).toFixed(2)}MB)`)
     
-    const blob = await upload(pathname, file, {
-      access: 'public',
-      handleUploadUrl: '/api/blob/upload-token',
-    })
+    // 重试机制
+    const maxRetries = 3
+    let lastError: Error | null = null
     
-    console.log(`[Blob上传] 完成: ${blob.url}`)
-    
-    return {
-      url: blob.url,
-      pathname: blob.pathname,
-      originalName: file.name,
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        console.log(`[Blob上传] 尝试 ${attempt}/${maxRetries}`)
+        
+        const blob = await upload(pathname, file, {
+          access: 'public',
+          handleUploadUrl: '/api/blob/upload-token',
+        })
+        
+        console.log(`[Blob上传] 完成: ${blob.url}`)
+        
+        return {
+          url: blob.url,
+          pathname: blob.pathname,
+          originalName: file.name,
+        }
+      } catch (error: any) {
+        lastError = error
+        console.error(`[Blob上传] 尝试 ${attempt} 失败:`, error.message)
+        
+        // 如果是认证错误，不重试
+        if (error.message?.includes('未授权') || error.message?.includes('401')) {
+          throw new Error('登录已过期，请刷新页面重新登录')
+        }
+        
+        // 如果不是最后一次尝试，等待后重试
+        if (attempt < maxRetries) {
+          const delay = attempt * 1000 // 1s, 2s, 3s
+          console.log(`[Blob上传] ${delay}ms 后重试...`)
+          await new Promise(resolve => setTimeout(resolve, delay))
+        }
+      }
     }
+    
+    // 所有重试都失败
+    throw new Error(lastError?.message || '文件上传失败，请稍后重试')
   }
 
   const handleSubmit = async () => {
