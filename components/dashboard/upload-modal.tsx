@@ -4,6 +4,7 @@ import { useState, useCallback, useEffect, useRef } from 'react'
 import { X, Upload, Loader2, FileText, CheckCircle2, AlertCircle, Trash2, Building2, Cpu, FileBarChart, BookOpen, Calendar } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { toast } from '@/components/ui/toaster'
+import { upload } from '@vercel/blob/client'
 
 interface UploadModalProps {
   isOpen: boolean
@@ -14,6 +15,12 @@ interface UploadModalProps {
 interface FileItem {
   file: File
   id: string
+}
+
+interface UploadedFile {
+  url: string
+  pathname: string
+  originalName: string
 }
 
 type AnalysisStatus = 'idle' | 'uploading' | 'analyzing' | 'success' | 'error'
@@ -43,6 +50,9 @@ const QUARTER_OPTIONS = [
   { value: 4, label: 'Q4' },
 ]
 
+// 文件大小限制：500MB
+const MAX_FILE_SIZE = 500 * 1024 * 1024
+
 export default function UploadModal({ isOpen, onClose, onSuccess }: UploadModalProps) {
   const [financialFiles, setFinancialFiles] = useState<FileItem[]>([])
   const [researchFiles, setResearchFiles] = useState<FileItem[]>([])
@@ -51,6 +61,7 @@ export default function UploadModal({ isOpen, onClose, onSuccess }: UploadModalP
   const [selectedQuarter, setSelectedQuarter] = useState<number>(4) // 默认Q4
   const [analysisStatus, setAnalysisStatus] = useState<AnalysisStatus>('idle')
   const [errorMessage, setErrorMessage] = useState<string>('')
+  const [uploadProgress, setUploadProgress] = useState<string>('')
   
   // ★★★ 防重复提交的关键状态 ★★★
   const isSubmittingRef = useRef(false)
@@ -74,6 +85,7 @@ export default function UploadModal({ isOpen, onClose, onSuccess }: UploadModalP
         setSelectedQuarter(4)
         setAnalysisStatus('idle')
         setErrorMessage('')
+        setUploadProgress('')
         currentRequestIdRef.current = null
       }
     }
@@ -94,7 +106,18 @@ export default function UploadModal({ isOpen, onClose, onSuccess }: UploadModalP
     const existingFiles = type === 'financial' ? financialFiles : researchFiles
 
     Array.from(newFiles).forEach((file) => {
+      // 检查文件类型
       if (file.type === 'application/pdf') {
+        // 检查文件大小
+        if (file.size > MAX_FILE_SIZE) {
+          toast({
+            title: '文件过大',
+            description: `${file.name} 超过500MB限制`,
+            variant: 'destructive',
+          })
+          return
+        }
+        
         if (!existingFiles.some(f => f.file.name === file.name)) {
           validFiles.push({
             file,
@@ -118,6 +141,32 @@ export default function UploadModal({ isOpen, onClose, onSuccess }: UploadModalP
       setFinancialFiles(prev => prev.filter(f => f.id !== id))
     } else {
       setResearchFiles(prev => prev.filter(f => f.id !== id))
+    }
+  }
+
+  /**
+   * 使用 Vercel Blob 客户端直接上传文件
+   * 绕过 Serverless Functions 的 4.5MB 限制
+   * 支持最大 500MB 的文件
+   */
+  const uploadFileToBlob = async (file: File, prefix: string): Promise<UploadedFile> => {
+    const timestamp = Date.now()
+    const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_')
+    const pathname = `uploads/${prefix}/${timestamp}_${safeName}`
+    
+    console.log(`[Blob上传] 开始上传: ${file.name} (${(file.size / 1024 / 1024).toFixed(2)}MB)`)
+    
+    const blob = await upload(pathname, file, {
+      access: 'public',
+      handleUploadUrl: '/api/blob/upload-token',
+    })
+    
+    console.log(`[Blob上传] 完成: ${blob.url}`)
+    
+    return {
+      url: blob.url,
+      pathname: blob.pathname,
+      originalName: file.name,
     }
   }
 
@@ -160,38 +209,50 @@ export default function UploadModal({ isOpen, onClose, onSuccess }: UploadModalP
 
     setAnalysisStatus('uploading')
     setErrorMessage('')
+    setUploadProgress('准备上传文件...')
 
     try {
-      const formData = new FormData()
+      // ★★★ 第一步：使用 Vercel Blob 客户端直接上传文件 ★★★
+      const uploadedFinancialFiles: UploadedFile[] = []
+      const uploadedResearchFiles: UploadedFile[] = []
       
-      financialFiles.forEach((item) => {
-        formData.append('financialFiles', item.file)
-      })
+      // 上传财报文件
+      for (let i = 0; i < financialFiles.length; i++) {
+        const item = financialFiles[i]
+        setUploadProgress(`上传财报 ${i + 1}/${financialFiles.length}: ${item.file.name}`)
+        const uploaded = await uploadFileToBlob(item.file, 'financial')
+        uploadedFinancialFiles.push(uploaded)
+      }
       
-      researchFiles.forEach((item) => {
-        formData.append('researchFiles', item.file)
-      })
+      // 上传研报文件
+      for (let i = 0; i < researchFiles.length; i++) {
+        const item = researchFiles[i]
+        setUploadProgress(`上传研报 ${i + 1}/${researchFiles.length}: ${item.file.name}`)
+        const uploaded = await uploadFileToBlob(item.file, 'research')
+        uploadedResearchFiles.push(uploaded)
+      }
       
-      formData.append('category', selectedCategory)
-      formData.append('requestId', requestId)
-      formData.append('fiscalYear', selectedYear.toString())
-      formData.append('fiscalQuarter', selectedQuarter.toString())
+      console.log('[前端] 文件上传完成，开始分析')
+      setUploadProgress('')
+      setAnalysisStatus('analyzing')
 
-      // 1.5秒后切换到分析状态
-      const statusTimeout = setTimeout(() => {
-        if (currentRequestIdRef.current === requestId) {
-          setAnalysisStatus('analyzing')
-        }
-      }, 1500)
-
-      console.log('[前端] 发送请求到 /api/reports/upload')
-      const response = await fetch('/api/reports/upload', {
+      // ★★★ 第二步：调用分析API，传递Blob URL而不是文件 ★★★
+      console.log('[前端] 发送请求到 /api/reports/analyze')
+      const response = await fetch('/api/reports/analyze', {
         method: 'POST',
-        body: formData,
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          financialFiles: uploadedFinancialFiles,
+          researchFiles: uploadedResearchFiles,
+          category: selectedCategory,
+          requestId: requestId,
+          fiscalYear: selectedYear,
+          fiscalQuarter: selectedQuarter,
+        }),
         signal: abortControllerRef.current.signal,
       })
-
-      clearTimeout(statusTimeout)
 
       // 检查是否是当前请求
       if (currentRequestIdRef.current !== requestId) {
@@ -203,7 +264,7 @@ export default function UploadModal({ isOpen, onClose, onSuccess }: UploadModalP
 
       if (!response.ok) {
         const result = await response.json()
-        throw new Error(result.error || '上传失败')
+        throw new Error(result.error || '分析失败')
       }
 
       const result = await response.json()
@@ -227,6 +288,7 @@ export default function UploadModal({ isOpen, onClose, onSuccess }: UploadModalP
           setSelectedYear(currentYear)
           setSelectedQuarter(4)
           setAnalysisStatus('idle')
+          setUploadProgress('')
           isSubmittingRef.current = false
           currentRequestIdRef.current = null
           onClose()
@@ -248,6 +310,7 @@ export default function UploadModal({ isOpen, onClose, onSuccess }: UploadModalP
       
       setAnalysisStatus('error')
       setErrorMessage(error.message || '分析失败')
+      setUploadProgress('')
       
       toast({
         title: '分析失败',
@@ -264,6 +327,10 @@ export default function UploadModal({ isOpen, onClose, onSuccess }: UploadModalP
   }
 
   const isProcessing = analysisStatus === 'uploading' || analysisStatus === 'analyzing'
+
+  // 计算总文件大小
+  const totalSize = [...financialFiles, ...researchFiles].reduce((sum, f) => sum + f.file.size, 0)
+  const totalSizeMB = (totalSize / 1024 / 1024).toFixed(1)
 
   return (
     <div className="fixed inset-0 z-50 overflow-hidden">
@@ -304,7 +371,9 @@ export default function UploadModal({ isOpen, onClose, onSuccess }: UploadModalP
                   <p className="font-medium text-blue-900">
                     {analysisStatus === 'uploading' ? '正在上传文件...' : 'AI正在分析财报...'}
                   </p>
-                  <p className="text-sm text-blue-600">请稍候，这可能需要1-2分钟</p>
+                  <p className="text-sm text-blue-600">
+                    {uploadProgress || '请稍候，这可能需要1-2分钟'}
+                  </p>
                 </div>
               </div>
             </div>
@@ -410,7 +479,7 @@ export default function UploadModal({ isOpen, onClose, onSuccess }: UploadModalP
                   <FileBarChart className="h-4 w-4 text-blue-500" />
                   财报文件 <span className="text-red-500">*</span>
                 </label>
-                <p className="text-xs text-slate-500 mb-3">季度财报 (10-Q) 或年度财报 (10-K)</p>
+                <p className="text-xs text-slate-500 mb-3">季度财报 (10-Q) 或年度财报 (10-K)，支持最大500MB</p>
                 
                 <div className="border-2 border-dashed border-slate-200 rounded-xl p-4 hover:border-blue-300 transition-colors">
                   <input
@@ -433,6 +502,7 @@ export default function UploadModal({ isOpen, onClose, onSuccess }: UploadModalP
                       <div key={item.id} className="flex items-center gap-2 p-2 bg-blue-50 rounded-lg">
                         <FileText className="h-4 w-4 text-blue-500 flex-shrink-0" />
                         <span className="text-sm text-slate-700 flex-1 truncate">{item.file.name}</span>
+                        <span className="text-xs text-slate-400">{(item.file.size / 1024 / 1024).toFixed(1)}MB</span>
                         <button
                           onClick={() => removeFile(item.id, 'financial')}
                           className="p-1 hover:bg-blue-100 rounded"
@@ -474,6 +544,7 @@ export default function UploadModal({ isOpen, onClose, onSuccess }: UploadModalP
                       <div key={item.id} className="flex items-center gap-2 p-2 bg-purple-50 rounded-lg">
                         <FileText className="h-4 w-4 text-purple-500 flex-shrink-0" />
                         <span className="text-sm text-slate-700 flex-1 truncate">{item.file.name}</span>
+                        <span className="text-xs text-slate-400">{(item.file.size / 1024 / 1024).toFixed(1)}MB</span>
                         <button
                           onClick={() => removeFile(item.id, 'research')}
                           className="p-1 hover:bg-purple-100 rounded"
@@ -485,6 +556,13 @@ export default function UploadModal({ isOpen, onClose, onSuccess }: UploadModalP
                   </div>
                 )}
               </div>
+
+              {/* Total file size indicator */}
+              {(financialFiles.length > 0 || researchFiles.length > 0) && (
+                <div className="text-xs text-slate-500 text-right">
+                  总计: {financialFiles.length + researchFiles.length} 个文件, {totalSizeMB}MB
+                </div>
+              )}
             </>
           )}
         </div>
