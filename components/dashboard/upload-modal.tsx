@@ -149,8 +149,8 @@ export default function UploadModal({ isOpen, onClose, onSuccess }: UploadModalP
     // ★★★ 设置提交锁 ★★★
     isSubmittingRef.current = true
     
-    // 生成唯一的请求ID
-    const requestId = `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+    // 生成唯一的请求ID（不带前缀，后端会加）
+    const requestId = `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
     currentRequestIdRef.current = requestId
     
     console.log('[前端] ========================================')
