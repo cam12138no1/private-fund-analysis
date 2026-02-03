@@ -78,24 +78,52 @@ export async function extractTextFromExcel(buffer: Buffer): Promise<string> {
   }
 }
 
+/**
+ * 从文档中提取文本
+ * @param buffer 文件内容
+ * @param fileNameOrMimeType 文件名或MIME类型
+ */
 export async function extractTextFromDocument(
   buffer: Buffer,
-  mimeType: string
+  fileNameOrMimeType: string
 ): Promise<string> {
-  if (mimeType === 'application/pdf') {
+  // 支持文件名或MIME类型
+  const input = fileNameOrMimeType.toLowerCase()
+  
+  // 检查是否是PDF
+  if (input === 'application/pdf' || input.endsWith('.pdf')) {
     return extractTextFromPDF(buffer)
-  } else if (
-    mimeType === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
-    mimeType === 'application/vnd.ms-excel'
+  }
+  
+  // 检查是否是Excel
+  if (
+    input === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
+    input === 'application/vnd.ms-excel' ||
+    input.endsWith('.xlsx') ||
+    input.endsWith('.xls')
   ) {
     return extractTextFromExcel(buffer)
-  } else if (mimeType.startsWith('text/')) {
+  }
+  
+  // 检查是否是文本文件
+  if (input.startsWith('text/') || input.endsWith('.txt')) {
     let text = buffer.toString('utf-8')
     if (text.length > MAX_TEXT_LENGTH) {
       text = text.substring(0, MAX_TEXT_LENGTH) + '\n\n[文档内容已截断]'
     }
     return text
-  } else {
-    throw new Error(`Unsupported file type: ${mimeType}`)
   }
+  
+  // 检查是否是Word文档
+  if (
+    input === 'application/msword' ||
+    input === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+    input.endsWith('.doc') ||
+    input.endsWith('.docx')
+  ) {
+    // Word文档暂时不支持，返回提示
+    throw new Error('Word文档解析暂不支持，请转换为PDF后上传')
+  }
+  
+  throw new Error(`不支持的文件类型: ${fileNameOrMimeType}`)
 }
