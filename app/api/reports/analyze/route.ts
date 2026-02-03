@@ -76,7 +76,7 @@ export async function POST(request: NextRequest) {
     const existingByRequestId = await analysisStore.getByRequestId(requestId)
     if (existingByRequestId) {
       console.log('[分析] 发现已存在的记录:', existingByRequestId.id)
-      if (!existingByRequestId.processing && existingByRequestId.analysis) {
+      if (!existingByRequestId.processing && existingByRequestId.one_line_conclusion) {
         console.log('[分析] 返回已完成的分析结果')
         return NextResponse.json({
           success: true,
@@ -164,7 +164,7 @@ export async function POST(request: NextRequest) {
     const doubleCheck = await analysisStore.getByRequestId(requestId)
     if (doubleCheck) {
       console.log('[分析] 二次检查发现已存在记录:', doubleCheck.id)
-      if (!doubleCheck.processing && doubleCheck.analysis) {
+      if (!doubleCheck.processing && doubleCheck.one_line_conclusion) {
         return NextResponse.json({
           success: true,
           analysis_id: doubleCheck.id,
