@@ -8,12 +8,14 @@ export const dynamic = 'force-dynamic'
 export async function GET(request: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
-    if (!session) {
+    if (!session?.user?.id) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    // Use async store methods
-    const allAnalyses = await analysisStore.getAll()
+    const userId = session.user.id
+
+    // Use async store methods (用户隔离)
+    const allAnalyses = await analysisStore.getAll(userId)
     
     console.log(`[Reports API] Retrieved ${allAnalyses.length} analyses`)
     

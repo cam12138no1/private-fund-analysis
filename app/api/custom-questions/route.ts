@@ -27,10 +27,11 @@ let qaHistory: any[] = []
 export async function POST(request: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
-    if (!session) {
+    if (!session?.user?.id) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
+    const userId = session.user.id
     const body = await request.json()
     const { companySymbol, companyName, category, questions, evaluationCategory } = body as CustomQuestionsRequest
 
@@ -43,8 +44,8 @@ export async function POST(request: NextRequest) {
 
     console.log(`[CustomQ] Processing ${questions.length} questions for ${companySymbol}`)
 
-    // Get the latest analysis data for this company from our store
-    const allAnalyses = await analysisStore.getAll()
+    // Get the latest analysis data for this company from our store (用户隔离)
+    const allAnalyses = await analysisStore.getAll(userId)
     const companyAnalyses = allAnalyses.filter(a => 
       a.company_symbol === companySymbol || 
       a.company_symbol?.toUpperCase() === companySymbol.toUpperCase()

@@ -8,16 +8,17 @@ export const dynamic = 'force-dynamic'
 export async function GET(request: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
-    if (!session) {
+    if (!session?.user?.id) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
+    const userId = session.user.id
     const { searchParams } = new URL(request.url)
     const id = searchParams.get('id')
 
-    // If specific ID requested, return that analysis status
+    // If specific ID requested, return that analysis status (用户隔离)
     if (id) {
-      const analysis = await analysisStore.get(id)
+      const analysis = await analysisStore.get(userId, id)
       if (!analysis) {
         return NextResponse.json({ error: 'Analysis not found' }, { status: 404 })
       }
@@ -32,8 +33,8 @@ export async function GET(request: NextRequest) {
       })
     }
 
-    // Return all processing/recent analyses
-    const allAnalyses = await analysisStore.getAll()
+    // Return all processing/recent analyses (用户隔离)
+    const allAnalyses = await analysisStore.getAll(userId)
     
     // Get processing items
     const processing = allAnalyses
@@ -79,7 +80,7 @@ export async function GET(request: NextRequest) {
       totalCount: allAnalyses.length,
     })
   } catch (error: any) {
-    console.error('Get status error:', error)
+    console.error('[Status API] Error:', error)
     return NextResponse.json(
       { error: error.message || 'Failed to fetch status' },
       { status: 500 }

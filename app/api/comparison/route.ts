@@ -55,10 +55,11 @@ let comparisonHistory: any[] = []
 export async function POST(request: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
-    if (!session) {
+    if (!session?.user?.id) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
+    const userId = session.user.id
     const body = await request.json()
     const { category, companySymbols, metrics } = body as ComparisonRequest
 
@@ -71,8 +72,8 @@ export async function POST(request: NextRequest) {
 
     console.log(`[Comparison] Comparing ${companySymbols.length} companies in ${category}`)
 
-    // Get analysis data from our store for each company
-    const allAnalyses = await analysisStore.getAll()
+    // Get analysis data from our store for each company (用户隔离)
+    const allAnalyses = await analysisStore.getAll(userId)
     
     const companiesData = companySymbols.map((symbol) => {
       const companyInfo = COMPANY_INFO[symbol] || { name: symbol, nameZh: symbol }

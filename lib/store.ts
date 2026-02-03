@@ -1,11 +1,12 @@
+// lib/store.ts - 用户隔离的数据存储
 // Hybrid storage: Uses Vercel Blob when available, falls back to in-memory for development
-// This ensures data persists across serverless function invocations
 
 import { put, list, del } from '@vercel/blob'
 import { AnalysisResult, ResultsTableRow, DriverDetail } from './ai/analyzer'
 
 export interface StoredAnalysis {
   id: string
+  user_id: string  // ★ 新增：用户ID，用于数据隔离
   company_name: string
   company_symbol: string
   report_type: string
@@ -13,13 +14,13 @@ export interface StoredAnalysis {
   fiscal_quarter?: number
   period?: string  // 格式化的期间，如 "Q4 2025"
   category?: string  // 公司分类: AI_APPLICATION | AI_SUPPLY_CHAIN
-  request_id?: string  // 用于去重的请求ID（现在也作为文件名的一部分）
+  request_id?: string  // 用于去重的请求ID
   filing_date: string
   created_at: string
   processed: boolean
   processing?: boolean
   error?: string
-  has_research_report?: boolean  // 是否包含研报对比
+  has_research_report?: boolean
   
   // Complete analysis results
   one_line_conclusion?: string
@@ -58,7 +59,6 @@ export interface StoredAnalysis {
     recommendation: string
   }
   investment_committee_summary?: string
-  // 横向对比快照 (用于投委会表格)
   comparison_snapshot?: {
     core_revenue: string
     core_profit: string
@@ -70,7 +70,6 @@ export interface StoredAnalysis {
     position_action: string
     next_quarter_focus: string
   }
-  // 研报对比分析 (可选，仅当有研报时)
   research_comparison?: {
     consensus_source: string
     key_differences: string[]
@@ -87,206 +86,188 @@ export interface StoredAnalysis {
 
 const BLOB_PREFIX = 'analyses/'
 
-// Check if Blob is available
 function isBlobAvailable(): boolean {
   return !!process.env.BLOB_READ_WRITE_TOKEN
 }
 
 /**
- * ★★★ 原子去重方案 ★★★
+ * ★★★ 用户隔离的数据存储 ★★★
  * 
- * 问题：两个serverless实例同时执行findByRequestId()，都扫到"没有"，然后各自创建记录
- * 
- * 解决方案：使用 requestId 作为 Blob 文件名的一部分
- * - 文件名格式：analyses/req_{requestId}.json
- * - Vercel Blob 的 put 操作是原子的（同名文件会覆盖）
- * - 这样即使两个实例同时写入，最终只会有一个文件
- * - 第二个写入会覆盖第一个，但内容相同，所以没问题
+ * 数据路径格式：analyses/user_{userId}/req_{requestId}.json
+ * 每个用户只能访问自己的数据
  */
 class AnalysisStore {
   private memoryStore: Map<string, StoredAnalysis> = new Map()
-  private memoryCounter: number = 0
   private useBlob: boolean
 
   constructor() {
     this.useBlob = isBlobAvailable()
-    console.log(`AnalysisStore initialized. Using Blob: ${this.useBlob}`)
+    console.log(`[Store] Initialized. Using Blob: ${this.useBlob}`)
+  }
+
+  // ★ 生成用户隔离的路径
+  private getUserPath(userId: string, requestId: string): string {
+    if (!userId) throw new Error('[Store] userId is required')
+    return `${BLOB_PREFIX}user_${userId}/req_${requestId}.json`
+  }
+
+  private getUserPrefix(userId: string): string {
+    if (!userId) throw new Error('[Store] userId is required')
+    return `${BLOB_PREFIX}user_${userId}/`
+  }
+
+  // ★ 验证用户权限
+  private validateAccess(analysis: StoredAnalysis, userId: string): void {
+    if (analysis.user_id && analysis.user_id !== userId) {
+      console.error(`[Store] Access denied: user ${userId} tried to access user ${analysis.user_id}'s data`)
+      throw new Error('Access denied')
+    }
   }
 
   /**
-   * ★★★ 原子性添加：使用 requestId 作为唯一标识 ★★★
-   * 如果 requestId 相同，文件会被覆盖（原子操作）
+   * ★★★ 原子性添加：使用 requestId 作为唯一标识，userId 作为路径隔离 ★★★
    */
-  async addWithRequestId(requestId: string, analysis: Omit<StoredAnalysis, 'id'>): Promise<StoredAnalysis> {
-    // 使用 requestId 作为 ID，确保唯一性
+  async addWithRequestId(
+    userId: string,
+    requestId: string,
+    analysis: Omit<StoredAnalysis, 'id' | 'user_id'>
+  ): Promise<StoredAnalysis> {
+    if (!userId || !requestId) {
+      throw new Error('[Store] userId and requestId are required')
+    }
+
     const id = `req_${requestId}`
-    const storedAnalysis: StoredAnalysis = { 
-      id, 
+    const storedAnalysis: StoredAnalysis = {
+      id,
+      user_id: userId,
       request_id: requestId,
-      ...analysis 
+      ...analysis,
     }
-    
+
     if (this.useBlob) {
       try {
-        // 文件名使用 requestId，这样同一个请求只会有一个文件
-        const blobPath = `${BLOB_PREFIX}${id}.json`
+        const blobPath = this.getUserPath(userId, requestId)
         
-        // Vercel Blob 的 put 是原子操作
-        // 如果两个实例同时写入同一个文件名，后写入的会覆盖先写入的
-        // 但因为内容相同（都是 processing 状态），所以结果是正确的
         await put(blobPath, JSON.stringify(storedAnalysis), {
           access: 'public',
           contentType: 'application/json',
         })
         
-        console.log(`[Blob] Added/Updated analysis with requestId: ${requestId} -> ${id}`)
+        console.log(`[Store] Added: user=${userId}, request=${requestId}`)
         return storedAnalysis
       } catch (error) {
-        console.error('[Blob] Error adding analysis:', error)
-        throw error  // 不要静默失败，让调用者知道
+        console.error('[Store] Failed to add:', error)
+        throw error
       }
     }
-    
+
     // Memory fallback
-    this.memoryStore.set(id, storedAnalysis)
-    console.log(`[Memory] Added analysis: ${id}`)
+    this.memoryStore.set(`${userId}:${id}`, storedAnalysis)
     return storedAnalysis
   }
 
   /**
-   * 旧的 add 方法保留用于兼容（但不推荐使用）
+   * ★★★ 获取用户的所有记录 ★★★
    */
-  async add(analysis: Omit<StoredAnalysis, 'id'>): Promise<StoredAnalysis> {
-    const timestamp = Date.now()
-    const id = `analysis_${timestamp}_${Math.random().toString(36).substr(2, 9)}`
-    const storedAnalysis: StoredAnalysis = { id, ...analysis }
-    
-    if (this.useBlob) {
-      try {
-        const blobPath = `${BLOB_PREFIX}${id}.json`
-        await put(blobPath, JSON.stringify(storedAnalysis), {
-          access: 'public',
-          contentType: 'application/json',
-        })
-        
-        console.log(`[Blob] Added analysis: ${id}`)
-        return storedAnalysis
-      } catch (error) {
-        console.error('[Blob] Error adding analysis, falling back to memory:', error)
-      }
+  async getAll(userId: string): Promise<StoredAnalysis[]> {
+    if (!userId) {
+      console.warn('[Store] getAll called without userId, returning empty array')
+      return []
     }
-    
-    // Memory fallback
-    this.memoryCounter++
-    this.memoryStore.set(id, storedAnalysis)
-    console.log(`[Memory] Added analysis: ${id}`)
-    return storedAnalysis
-  }
 
-  async update(id: string, updates: Partial<StoredAnalysis>): Promise<StoredAnalysis | undefined> {
     if (this.useBlob) {
       try {
-        // First get the existing analysis
-        const existing = await this.get(id)
-        if (!existing) {
-          console.log(`[Blob] Analysis not found for update: ${id}`)
-          return undefined
+        const prefix = this.getUserPrefix(userId)
+        const { blobs } = await list({ prefix })
+
+        // 去重：只保留每个pathname的最新版本
+        const latestMap = new Map<string, typeof blobs[0]>()
+        for (const blob of blobs) {
+          if (blob.pathname.endsWith('_index.json')) continue
+          
+          const existing = latestMap.get(blob.pathname)
+          if (!existing || new Date(blob.uploadedAt) > new Date(existing.uploadedAt)) {
+            latestMap.set(blob.pathname, blob)
+          }
         }
-        
-        const updated = { ...existing, ...updates }
-        const blobPath = `${BLOB_PREFIX}${id}.json`
-        
-        await put(blobPath, JSON.stringify(updated), {
-          access: 'public',
-          contentType: 'application/json',
-        })
-        
-        console.log(`[Blob] Updated analysis: ${id}`)
-        return updated
-      } catch (error) {
-        console.error('[Blob] Error updating analysis:', error)
-      }
-    }
-    
-    // Memory fallback
-    const existing = this.memoryStore.get(id)
-    if (!existing) return undefined
-    const updated = { ...existing, ...updates }
-    this.memoryStore.set(id, updated)
-    console.log(`[Memory] Updated analysis: ${id}`)
-    return updated
-  }
 
-  async get(id: string): Promise<StoredAnalysis | undefined> {
-    if (this.useBlob) {
-      try {
-        const { blobs } = await list({ prefix: `${BLOB_PREFIX}${id}` })
-        if (blobs.length === 0) return undefined
-        
-        const response = await fetch(blobs[0].url)
-        if (!response.ok) return undefined
-        
-        return await response.json()
+        const uniqueBlobs = Array.from(latestMap.values())
+        console.log(`[Store] User ${userId}: ${blobs.length} blobs, ${uniqueBlobs.length} unique`)
+
+        const analyses: StoredAnalysis[] = []
+        for (const blob of uniqueBlobs) {
+          try {
+            const response = await fetch(blob.url)
+            if (response.ok) {
+              const analysis = await response.json() as StoredAnalysis
+              
+              // 双重验证：确保数据确实属于该用户
+              if (!analysis.user_id || analysis.user_id === userId) {
+                analyses.push(analysis)
+              } else {
+                console.error(`[Store] Data corruption! File ${blob.pathname} has wrong user_id`)
+              }
+            }
+          } catch (e) {
+            console.error(`[Store] Failed to fetch ${blob.pathname}:`, e)
+          }
+        }
+
+        analyses.sort((a, b) => 
+          new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+        )
+
+        console.log(`[Store] User ${userId}: returning ${analyses.length} records`)
+        return analyses
       } catch (error) {
-        console.error('[Blob] Error getting analysis:', error)
+        console.error('[Store] getAll failed:', error)
+        return []
       }
     }
-    return this.memoryStore.get(id)
+
+    // Memory fallback
+    return Array.from(this.memoryStore.values())
+      .filter(a => a.user_id === userId)
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
   }
 
   /**
-   * ★★★ 通过 requestId 获取分析记录 ★★★
-   * 直接通过文件名查找，不需要扫表
+   * ★★★ 兼容旧代码：不传userId时，获取所有数据（仅用于迁移） ★★★
    */
-  async getByRequestId(requestId: string): Promise<StoredAnalysis | undefined> {
-    if (!requestId) return undefined
-    const id = `req_${requestId}`
-    return this.get(id)
-  }
-
-  async getAll(): Promise<StoredAnalysis[]> {
+  async getAllLegacy(): Promise<StoredAnalysis[]> {
     if (this.useBlob) {
       try {
         const { blobs } = await list({ prefix: BLOB_PREFIX })
         
-        // ★★★ 关键修复：Vercel Blob 的 list() 可能返回同一文件的多个版本 ★★★
-        // 按 pathname 去重，只保留最新的版本（uploadedAt 最大）
-        const latestBlobMap = new Map<string, typeof blobs[0]>()
+        const latestMap = new Map<string, typeof blobs[0]>()
         for (const blob of blobs) {
           if (blob.pathname.endsWith('_index.json')) continue
-          
-          const existing = latestBlobMap.get(blob.pathname)
+          const existing = latestMap.get(blob.pathname)
           if (!existing || new Date(blob.uploadedAt) > new Date(existing.uploadedAt)) {
-            latestBlobMap.set(blob.pathname, blob)
+            latestMap.set(blob.pathname, blob)
           }
         }
-        
-        const uniqueBlobs = Array.from(latestBlobMap.values())
-        console.log(`[Blob] Found ${blobs.length} blobs, ${uniqueBlobs.length} unique after dedup`)
-        
+
+        const uniqueBlobs = Array.from(latestMap.values())
         const analyses: StoredAnalysis[] = []
         
         for (const blob of uniqueBlobs) {
           try {
             const response = await fetch(blob.url)
             if (response.ok) {
-              const analysis = await response.json()
-              analyses.push(analysis)
+              analyses.push(await response.json())
             }
           } catch (e) {
-            console.error(`[Blob] Error fetching ${blob.pathname}:`, e)
+            console.error(`[Store] Error fetching ${blob.pathname}:`, e)
           }
         }
         
-        // Sort by created_at descending
-        analyses.sort((a, b) => 
+        return analyses.sort((a, b) => 
           new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
         )
-        
-        console.log(`[Blob] Retrieved ${analyses.length} analyses`)
-        return analyses
       } catch (error) {
-        console.error('[Blob] Error getting all analyses:', error)
+        console.error('[Store] getAllLegacy failed:', error)
+        return []
       }
     }
     
@@ -295,75 +276,147 @@ class AnalysisStore {
     )
   }
 
-  async getProcessingCount(): Promise<number> {
-    const all = await this.getAll()
-    return all.filter(a => a.processing).length
+  /**
+   * ★★★ 更新记录 ★★★
+   */
+  async update(
+    userId: string,
+    id: string,
+    updates: Partial<StoredAnalysis>
+  ): Promise<StoredAnalysis | undefined> {
+    if (!userId) {
+      console.warn('[Store] update called without userId')
+      return undefined
+    }
+    
+    const existing = await this.get(userId, id)
+    if (!existing) {
+      console.warn(`[Store] Update failed: record not found user=${userId}, id=${id}`)
+      return undefined
+    }
+
+    // 不需要再次验证，get 已经验证过了
+    const updated = { ...existing, ...updates, user_id: userId }
+    
+    if (this.useBlob) {
+      const requestId = existing.request_id || id.replace('req_', '')
+      const blobPath = this.getUserPath(userId, requestId)
+      
+      await put(blobPath, JSON.stringify(updated), {
+        access: 'public',
+        contentType: 'application/json',
+      })
+      
+      console.log(`[Store] Updated: user=${userId}, id=${id}`)
+      return updated
+    }
+
+    this.memoryStore.set(`${userId}:${id}`, updated)
+    return updated
   }
 
-  async getByCompany(symbol: string): Promise<StoredAnalysis[]> {
-    const all = await this.getAll()
-    return all.filter(a => a.company_symbol === symbol)
-  }
+  /**
+   * ★★★ 获取单个记录 ★★★
+   */
+  async get(userId: string, id: string): Promise<StoredAnalysis | undefined> {
+    if (!userId) {
+      console.warn('[Store] get called without userId')
+      return undefined
+    }
 
-  async clear(): Promise<void> {
     if (this.useBlob) {
       try {
-        const { blobs } = await list({ prefix: BLOB_PREFIX })
+        const prefix = this.getUserPrefix(userId)
+        const { blobs } = await list({ prefix: `${prefix}${id}` })
+        if (blobs.length === 0) return undefined
+
+        // 获取最新版本
+        const latestBlob = blobs.reduce((latest, blob) => 
+          new Date(blob.uploadedAt) > new Date(latest.uploadedAt) ? blob : latest
+        )
+
+        const response = await fetch(latestBlob.url)
+        if (!response.ok) return undefined
+
+        const analysis = await response.json() as StoredAnalysis
+        
+        // 验证用户权限
+        if (analysis.user_id && analysis.user_id !== userId) {
+          console.error(`[Store] Access denied for user ${userId}`)
+          return undefined
+        }
+        
+        return analysis
+      } catch (error) {
+        console.error('[Store] get failed:', error)
+        return undefined
+      }
+    }
+
+    return this.memoryStore.get(`${userId}:${id}`)
+  }
+
+  /**
+   * ★★★ 通过requestId获取 ★★★
+   */
+  async getByRequestId(userId: string, requestId: string): Promise<StoredAnalysis | undefined> {
+    if (!userId || !requestId) return undefined
+    return this.get(userId, `req_${requestId}`)
+  }
+
+  /**
+   * ★★★ 删除记录 ★★★
+   */
+  async delete(userId: string, id: string): Promise<boolean> {
+    if (!userId) {
+      console.warn('[Store] delete called without userId')
+      return false
+    }
+
+    if (this.useBlob) {
+      try {
+        const prefix = this.getUserPrefix(userId)
+        const { blobs } = await list({ prefix: `${prefix}${id}` })
+        
+        if (blobs.length === 0) return false
+        
+        // 删除所有版本
         for (const blob of blobs) {
           await del(blob.url)
         }
-        console.log('[Blob] Cleared all analyses')
+        
+        console.log(`[Store] Deleted: user=${userId}, id=${id}`)
+        return true
       } catch (error) {
-        console.error('[Blob] Error clearing analyses:', error)
-      }
-    }
-    this.memoryStore.clear()
-    this.memoryCounter = 0
-  }
-
-  async size(): Promise<number> {
-    const all = await this.getAll()
-    return all.length
-  }
-
-  async delete(id: string): Promise<boolean> {
-    if (this.useBlob) {
-      try {
-        const { blobs } = await list({ prefix: `${BLOB_PREFIX}${id}` })
-        if (blobs.length > 0) {
-          await del(blobs[0].url)
-          console.log(`[Blob] Deleted analysis: ${id}`)
-          return true
-        }
-        return false
-      } catch (error) {
-        console.error('[Blob] Error deleting analysis:', error)
+        console.error('[Store] delete failed:', error)
         return false
       }
     }
-    
-    // Memory fallback
-    const existed = this.memoryStore.has(id)
-    this.memoryStore.delete(id)
+
+    const key = `${userId}:${id}`
+    const existed = this.memoryStore.has(key)
+    this.memoryStore.delete(key)
     return existed
   }
 
-  async deleteStale(maxAgeMinutes: number = 30): Promise<number> {
-    const all = await this.getAll()
+  /**
+   * ★★★ 删除过期的处理中任务 ★★★
+   */
+  async deleteStale(userId: string, maxAgeMinutes: number = 30): Promise<number> {
+    const all = await this.getAll(userId)
     const now = Date.now()
     let deletedCount = 0
     
     for (const analysis of all) {
-      // Delete if processing for too long (stuck)
       if (analysis.processing) {
         const createdAt = new Date(analysis.created_at).getTime()
         const ageMinutes = (now - createdAt) / (1000 * 60)
         
         if (ageMinutes > maxAgeMinutes) {
-          const deleted = await this.delete(analysis.id)
+          const deleted = await this.delete(userId, analysis.id)
           if (deleted) {
             deletedCount++
-            console.log(`[Store] Deleted stale processing analysis: ${analysis.id} (age: ${ageMinutes.toFixed(1)} minutes)`)
+            console.log(`[Store] Deleted stale: ${analysis.id} (age: ${ageMinutes.toFixed(1)}min)`)
           }
         }
       }
@@ -373,10 +426,39 @@ class AnalysisStore {
   }
 
   /**
-   * 旧方法保留用于兼容（但现在推荐使用 getByRequestId）
+   * ★★★ 获取用户统计信息 ★★★
    */
-  async findByRequestId(requestId: string): Promise<StoredAnalysis | undefined> {
-    return this.getByRequestId(requestId)
+  async getUserStats(userId: string): Promise<{
+    total: number
+    processing: number
+    completed: number
+    failed: number
+  }> {
+    const all = await this.getAll(userId)
+    return {
+      total: all.length,
+      processing: all.filter(a => a.processing).length,
+      completed: all.filter(a => a.processed && !a.error).length,
+      failed: all.filter(a => a.error).length,
+    }
+  }
+
+  /**
+   * ★★★ 清空用户数据（危险操作） ★★★
+   */
+  async clearUser(userId: string): Promise<number> {
+    if (!userId) return 0
+    
+    const all = await this.getAll(userId)
+    let deletedCount = 0
+    
+    for (const analysis of all) {
+      const deleted = await this.delete(userId, analysis.id)
+      if (deleted) deletedCount++
+    }
+    
+    console.log(`[Store] Cleared ${deletedCount} records for user ${userId}`)
+    return deletedCount
   }
 }
 

@@ -34,11 +34,12 @@ export async function POST(request: NextRequest) {
     console.log('[上传] 收到新请求', new Date().toISOString())
     
     const session = await getServerSession(authOptions)
-    if (!session) {
+    if (!session?.user?.id) {
       console.log('[上传] 未授权访问')
       return NextResponse.json({ error: '未授权访问' }, { status: 401 })
     }
-    console.log('[上传] 用户已认证:', session.user?.email)
+    const userId = session.user.id
+    console.log('[上传] 用户已认证:', session.user?.email, 'ID:', userId)
 
     // Parse form data
     let formData: FormData
@@ -63,7 +64,7 @@ export async function POST(request: NextRequest) {
     
     // ★★★ 第一次检查：是否已存在此requestId的记录 ★★★
     console.log('[上传] 检查是否已存在记录...')
-    const existingAnalysis = await analysisStore.getByRequestId(requestId)
+    const existingAnalysis = await analysisStore.getByRequestId(userId, requestId)
     
     if (existingAnalysis) {
       console.log(`[上传] ⚠️ 发现已存在的记录!`)
@@ -100,7 +101,7 @@ export async function POST(request: NextRequest) {
       // 如果有错误，允许重试（删除旧记录）
       if (existingAnalysis.error) {
         console.log(`[上传] 删除失败的旧记录: ${existingAnalysis.id}`)
-        await analysisStore.delete(existingAnalysis.id)
+        await analysisStore.delete(userId, existingAnalysis.id)
       }
     } else {
       console.log('[上传] 未发现已存在的记录，继续处理')
@@ -194,7 +195,7 @@ export async function POST(request: NextRequest) {
 
     // ★★★ 第二次检查：创建记录前再次确认 ★★★
     console.log('[上传] 创建记录前再次检查...')
-    const doubleCheck = await analysisStore.getByRequestId(requestId)
+    const doubleCheck = await analysisStore.getByRequestId(userId, requestId)
     if (doubleCheck) {
       console.log(`[上传] ⚠️ 双重检查发现记录已存在! ID: ${doubleCheck.id}`)
       if (doubleCheck.processed) {
@@ -218,7 +219,7 @@ export async function POST(request: NextRequest) {
 
     // ★★★ 创建处理记录 ★★★
     console.log('[上传] 创建处理记录...')
-    const processingEntry = await analysisStore.addWithRequestId(requestId, {
+    const processingEntry = await analysisStore.addWithRequestId(userId, requestId, {
       company_name: metadata.company_name,
       company_symbol: metadata.company_symbol,
       report_type: metadata.report_type,
@@ -260,7 +261,7 @@ export async function POST(request: NextRequest) {
     } catch (analysisError: any) {
       console.error('[上传] ✗ AI分析失败:', analysisError.message)
       
-      await analysisStore.update(processingId, {
+      await analysisStore.update(userId, processingId, {
         processing: false,
         processed: false,
         error: analysisError.message || 'AI分析失败',
@@ -271,7 +272,7 @@ export async function POST(request: NextRequest) {
 
     // ★★★ 更新记录为完成状态 ★★★
     console.log(`[上传] 更新记录为完成状态: ${processingId}`)
-    const storedAnalysis = await analysisStore.update(processingId, {
+    const storedAnalysis = await analysisStore.update(userId, processingId, {
       processed: true,
       processing: false,
       error: undefined,
@@ -291,13 +292,18 @@ export async function POST(request: NextRequest) {
   } catch (error: any) {
     console.error('[上传] ✗ 未预期的错误:', error)
     
-    if (processingId) {
+    // 注意：这里无法获取userId，因为可能在session检查前就失败了
+    // 但如果有processingId，说明已经通过了认证，可以尝试更新
+    if (processingId && requestId) {
       try {
-        await analysisStore.update(processingId, {
-          processing: false,
-          processed: false,
-          error: error.message || '处理失败',
-        })
+        const session = await getServerSession(authOptions)
+        if (session?.user?.id) {
+          await analysisStore.update(session.user.id, processingId, {
+            processing: false,
+            processed: false,
+            error: error.message || '处理失败',
+          })
+        }
       } catch (updateError) {
         console.error('[上传] 更新错误状态失败:', updateError)
       }

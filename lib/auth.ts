@@ -2,15 +2,50 @@ import { NextAuthOptions } from 'next-auth'
 import CredentialsProvider from 'next-auth/providers/credentials'
 import { compare } from 'bcryptjs'
 
-// Demo user for local development (when no database is configured)
-const DEMO_USER = {
-  id: '1',
-  email: 'admin@example.com',
-  name: 'Admin User',
-  password: 'admin123',
-  role: 'admin',
-  permissions: ['read', 'write', 'delete', 'admin'],
-}
+// Demo users for local development (when no database is configured)
+// ★ 保留现有用户 admin@example.com，确保向后兼容
+const DEMO_USERS = [
+  {
+    id: '1',
+    email: 'admin@example.com',
+    name: 'Admin User',
+    password: 'admin123',
+    role: 'admin',
+    permissions: ['read', 'write', 'delete', 'admin'],
+  },
+  {
+    id: '2',
+    email: 'analyst1@finsight.internal',
+    name: 'Analyst One',
+    password: 'Analyst1!',
+    role: 'analyst',
+    permissions: ['read', 'write'],
+  },
+  {
+    id: '3',
+    email: 'analyst2@finsight.internal',
+    name: 'Analyst Two',
+    password: 'Analyst2!',
+    role: 'analyst',
+    permissions: ['read', 'write'],
+  },
+  {
+    id: '4',
+    email: 'analyst3@finsight.internal',
+    name: 'Analyst Three',
+    password: 'Analyst3!',
+    role: 'analyst',
+    permissions: ['read', 'write'],
+  },
+  {
+    id: '5',
+    email: 'viewer@finsight.internal',
+    name: 'Viewer',
+    password: 'Viewer1!',
+    role: 'viewer',
+    permissions: ['read'],
+  },
+]
 
 export const authOptions: NextAuthOptions = {
   providers: [
@@ -30,18 +65,20 @@ export const authOptions: NextAuthOptions = {
 
         if (!isDatabaseConfigured) {
           // Demo mode: use hardcoded credentials
-          if (
-            credentials.email === DEMO_USER.email &&
-            credentials.password === DEMO_USER.password
-          ) {
+          const demoUser = DEMO_USERS.find(u => u.email === credentials.email)
+          
+          if (demoUser && credentials.password === demoUser.password) {
+            console.log(`[Auth] Demo login: ${demoUser.email} (ID: ${demoUser.id})`)
             return {
-              id: DEMO_USER.id,
-              email: DEMO_USER.email,
-              name: DEMO_USER.name,
-              role: DEMO_USER.role,
-              permissions: DEMO_USER.permissions,
+              id: demoUser.id,
+              email: demoUser.email,
+              name: demoUser.name,
+              role: demoUser.role,
+              permissions: demoUser.permissions,
             }
           }
+          
+          console.log(`[Auth] Demo login failed for: ${credentials.email}`)
           return null
         }
 
@@ -55,6 +92,18 @@ export const authOptions: NextAuthOptions = {
           `
 
           if (result.rows.length === 0) {
+            // ★ 兼容模式：如果数据库中找不到，检查是否是demo用户
+            const demoUser = DEMO_USERS.find(u => u.email === credentials.email)
+            if (demoUser && credentials.password === demoUser.password) {
+              console.log(`[Auth] Fallback to demo user: ${demoUser.email}`)
+              return {
+                id: demoUser.id,
+                email: demoUser.email,
+                name: demoUser.name,
+                role: demoUser.role,
+                permissions: demoUser.permissions,
+              }
+            }
             return null
           }
 
@@ -65,6 +114,7 @@ export const authOptions: NextAuthOptions = {
             return null
           }
 
+          console.log(`[Auth] Database login: ${user.email} (ID: ${user.id})`)
           return {
             id: user.id.toString(),
             email: user.email,
@@ -73,7 +123,21 @@ export const authOptions: NextAuthOptions = {
             permissions: user.permissions,
           }
         } catch (error) {
-          console.error('Auth error:', error)
+          console.error('[Auth] Database error:', error)
+          
+          // ★ 数据库错误时，尝试使用demo用户
+          const demoUser = DEMO_USERS.find(u => u.email === credentials.email)
+          if (demoUser && credentials.password === demoUser.password) {
+            console.log(`[Auth] Database error, fallback to demo: ${demoUser.email}`)
+            return {
+              id: demoUser.id,
+              email: demoUser.email,
+              name: demoUser.name,
+              role: demoUser.role,
+              permissions: demoUser.permissions,
+            }
+          }
+          
           return null
         }
       }
@@ -107,3 +171,11 @@ export const authOptions: NextAuthOptions = {
   },
   secret: process.env.NEXTAUTH_SECRET,
 }
+
+// 导出用户列表供其他模块使用
+export const getDemoUsers = () => DEMO_USERS.map(u => ({
+  id: u.id,
+  email: u.email,
+  name: u.name,
+  role: u.role,
+}))

@@ -5,6 +5,8 @@ import { extractTextFromDocument } from '@/lib/document-parser'
 import { analyzeFinancialReport } from '@/lib/ai/analyzer'
 import { extractMetadataFromReport } from '@/lib/ai/extractor'
 import { analysisStore } from '@/lib/store'
+import { checkRateLimit, createRateLimitHeaders } from '@/lib/ratelimit'
+import { fetchWithRetry } from '@/lib/fetch-retry'
 
 export const runtime = 'nodejs'
 export const maxDuration = 300 // 5 minutes
@@ -27,28 +29,43 @@ interface AnalyzeRequest {
 /**
  * 分析API - 从 Vercel Blob URL 读取文件并进行分析
  * 
- * 这个API接收已上传到 Vercel Blob 的文件URL，
- * 从URL下载文件内容，然后进行AI分析。
- * 
- * 优势：
- * - 绕过了 Serverless Functions 的 4.5MB 请求体限制
- * - 支持最大 500MB 的文件
+ * ★ 新增功能：
+ * - 用户隔离：每个用户只能访问自己的数据
+ * - 速率限制：防止滥用
+ * - 重试机制：网络请求更健壮
  */
 export async function POST(request: NextRequest) {
   const startTime = Date.now()
   let processingId: string | null = null
   let requestId: string | null = null
+  let userId: string | null = null
   
   try {
     console.log('========================================')
     console.log('[分析] 收到新请求', new Date().toISOString())
     
+    // ★ 1. 认证检查
     const session = await getServerSession(authOptions)
-    if (!session) {
+    if (!session?.user?.id) {
       console.log('[分析] 未授权访问')
       return NextResponse.json({ error: '未授权访问' }, { status: 401 })
     }
-    console.log('[分析] 用户已认证:', session.user?.email)
+    
+    userId = session.user.id
+    console.log('[分析] 用户已认证:', session.user?.email, 'ID:', userId)
+
+    // ★ 2. 速率限制检查
+    const rateLimit = await checkRateLimit(userId, 'analysis')
+    if (!rateLimit.success) {
+      console.warn(`[分析] 用户 ${userId} 超出速率限制`)
+      return NextResponse.json(
+        { error: '请求过于频繁，请稍后再试' },
+        { 
+          status: 429,
+          headers: createRateLimitHeaders(rateLimit),
+        }
+      )
+    }
 
     // 解析JSON请求体
     const body: AnalyzeRequest = await request.json()
@@ -57,6 +74,7 @@ export async function POST(request: NextRequest) {
     requestId = body.requestId
     
     console.log('[分析] 请求参数:')
+    console.log('  - userId:', userId)
     console.log('  - requestId:', requestId)
     console.log('  - category:', category)
     console.log('  - fiscalYear:', fiscalYear)
@@ -72,8 +90,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: '请上传财报文件' }, { status: 400 })
     }
 
-    // ★★★ 检查是否已存在此requestId的记录 ★★★
-    const existingByRequestId = await analysisStore.getByRequestId(requestId)
+    // ★ 3. 检查是否已存在此requestId的记录（传入userId）
+    const existingByRequestId = await analysisStore.getByRequestId(userId, requestId)
     if (existingByRequestId) {
       console.log('[分析] 发现已存在的记录:', existingByRequestId.id)
       if (!existingByRequestId.processing && existingByRequestId.one_line_conclusion) {
@@ -96,17 +114,14 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // ★★★ 从 Blob URL 下载文件内容 ★★★
+    // ★ 4. 从 Blob URL 下载文件内容（使用重试机制）
     console.log('[分析] 开始从Blob下载文件...')
     
     // 下载财报文件
     const financialBuffers: { buffer: Buffer; name: string }[] = []
     for (const file of financialFiles) {
-      console.log(`[分析] 下载财报: ${file.originalName} from ${file.url}`)
-      const response = await fetch(file.url)
-      if (!response.ok) {
-        throw new Error(`下载文件失败: ${file.originalName}`)
-      }
+      console.log(`[分析] 下载财报: ${file.originalName}`)
+      const response = await fetchWithRetry(file.url, { maxRetries: 3 })
       const arrayBuffer = await response.arrayBuffer()
       financialBuffers.push({
         buffer: Buffer.from(arrayBuffer),
@@ -118,11 +133,8 @@ export async function POST(request: NextRequest) {
     // 下载研报文件
     const researchBuffers: { buffer: Buffer; name: string }[] = []
     for (const file of researchFiles) {
-      console.log(`[分析] 下载研报: ${file.originalName} from ${file.url}`)
-      const response = await fetch(file.url)
-      if (!response.ok) {
-        throw new Error(`下载文件失败: ${file.originalName}`)
-      }
+      console.log(`[分析] 下载研报: ${file.originalName}`)
+      const response = await fetchWithRetry(file.url, { maxRetries: 3 })
       const arrayBuffer = await response.arrayBuffer()
       researchBuffers.push({
         buffer: Buffer.from(arrayBuffer),
@@ -131,7 +143,7 @@ export async function POST(request: NextRequest) {
       console.log(`[分析] 下载完成: ${file.originalName} (${(arrayBuffer.byteLength / 1024 / 1024).toFixed(2)}MB)`)
     }
 
-    // ★★★ 提取文本 ★★★
+    // ★ 5. 提取文本
     console.log('[分析] 开始提取文本...')
     
     let financialText = ''
@@ -150,7 +162,7 @@ export async function POST(request: NextRequest) {
       console.log(`[分析] 研报文本提取完成: ${researchText.length} 字符`)
     }
 
-    // ★★★ 提取元数据 ★★★
+    // ★ 6. 提取元数据
     console.log('[分析] 开始提取元数据...')
     const metadata = await extractMetadataFromReport(financialText)
     console.log('[分析] 元数据:', JSON.stringify(metadata, null, 2))
@@ -160,8 +172,8 @@ export async function POST(request: NextRequest) {
     const finalFiscalQuarter = fiscalQuarter || metadata.fiscal_quarter || 4
     const period = `${finalFiscalYear} Q${finalFiscalQuarter}`
 
-    // ★★★ 再次检查是否已存在（防止并发） ★★★
-    const doubleCheck = await analysisStore.getByRequestId(requestId)
+    // ★ 7. 再次检查是否已存在（防止并发）
+    const doubleCheck = await analysisStore.getByRequestId(userId, requestId)
     if (doubleCheck) {
       console.log('[分析] 二次检查发现已存在记录:', doubleCheck.id)
       if (!doubleCheck.processing && doubleCheck.one_line_conclusion) {
@@ -183,9 +195,9 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // ★★★ 创建处理记录 ★★★
+    // ★ 8. 创建处理记录（传入userId）
     console.log('[分析] 创建处理记录...')
-    const processingEntry = await analysisStore.addWithRequestId(requestId, {
+    const processingEntry = await analysisStore.addWithRequestId(userId, requestId, {
       company_name: metadata.company_name,
       company_symbol: metadata.company_symbol,
       report_type: metadata.report_type,
@@ -201,7 +213,7 @@ export async function POST(request: NextRequest) {
     processingId = processingEntry.id
     console.log('[分析] 处理记录已创建:', processingId)
 
-    // ★★★ AI分析 ★★★
+    // ★ 9. AI分析
     console.log('[分析] 开始AI分析...')
     const analysisResult = await analyzeFinancialReport(
       financialText,
@@ -217,9 +229,9 @@ export async function POST(request: NextRequest) {
     )
     console.log('[分析] AI分析完成')
 
-    // ★★★ 更新记录 ★★★
+    // ★ 10. 更新记录（传入userId）
     console.log('[分析] 更新记录...')
-    await analysisStore.update(processingId, {
+    await analysisStore.update(userId, processingId, {
       processed: true,
       processing: false,
       error: undefined,
@@ -228,7 +240,7 @@ export async function POST(request: NextRequest) {
     console.log('[分析] 记录更新完成')
 
     const duration = Date.now() - startTime
-    console.log(`[分析] ✓ 完成，耗时: ${duration}ms`)
+    console.log(`[分析] ✓ 完成，用户: ${userId}，耗时: ${duration}ms`)
     console.log('========================================')
 
     return NextResponse.json({
@@ -247,9 +259,9 @@ export async function POST(request: NextRequest) {
     console.error('[分析] 错误堆栈:', error.stack)
     
     // 更新记录为失败状态
-    if (processingId) {
+    if (processingId && userId) {
       try {
-        await analysisStore.update(processingId, {
+        await analysisStore.update(userId, processingId, {
           processing: false,
           error: error.message,
         })

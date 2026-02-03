@@ -5,13 +5,15 @@ import { analysisStore } from '@/lib/store'
 
 export const dynamic = 'force-dynamic'
 
-// Clean stale processing reports
+// Clean stale processing reports (用户只能清理自己的)
 export async function POST(request: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
-    if (!session) {
+    if (!session?.user?.id) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
+
+    const userId = session.user.id
 
     // Get optional maxAgeMinutes from request body
     let maxAgeMinutes = 10 // Default: 10 minutes
@@ -24,9 +26,10 @@ export async function POST(request: NextRequest) {
       // Use default if no body
     }
 
-    const deletedCount = await analysisStore.deleteStale(maxAgeMinutes)
+    // ★ 传入userId，只清理用户自己的数据
+    const deletedCount = await analysisStore.deleteStale(userId, maxAgeMinutes)
     
-    console.log(`[Clean API] Deleted ${deletedCount} stale reports (maxAge: ${maxAgeMinutes} minutes)`)
+    console.log(`[Clean API] User ${userId} deleted ${deletedCount} stale reports`)
     
     return NextResponse.json({ 
       success: true, 
@@ -34,7 +37,7 @@ export async function POST(request: NextRequest) {
       message: `Cleaned ${deletedCount} stale processing reports`
     })
   } catch (error: any) {
-    console.error('Clean reports error:', error)
+    console.error('[Clean API] Error:', error)
     return NextResponse.json(
       { error: error.message || 'Failed to clean reports' },
       { status: 500 }
@@ -42,24 +45,28 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// Clear ALL reports (use with caution)
+// Clear ALL user's reports (use with caution)
 export async function DELETE(request: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
-    if (!session) {
+    if (!session?.user?.id) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    await analysisStore.clear()
+    const userId = session.user.id
+
+    // ★ 只清理用户自己的数据
+    const deletedCount = await analysisStore.clearUser(userId)
     
-    console.log('[Clean API] Cleared ALL reports')
+    console.log(`[Clean API] User ${userId} cleared ${deletedCount} reports`)
     
     return NextResponse.json({ 
       success: true, 
-      message: 'All reports cleared'
+      deletedCount,
+      message: `All ${deletedCount} reports cleared`
     })
   } catch (error: any) {
-    console.error('Clear all reports error:', error)
+    console.error('[Clean API] Error:', error)
     return NextResponse.json(
       { error: error.message || 'Failed to clear reports' },
       { status: 500 }
@@ -67,15 +74,18 @@ export async function DELETE(request: NextRequest) {
   }
 }
 
-// Get count of stale reports
+// Get count of stale reports (用户只能查看自己的)
 export async function GET(request: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
-    if (!session) {
+    if (!session?.user?.id) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const all = await analysisStore.getAll()
+    const userId = session.user.id
+
+    // ★ 只获取用户自己的数据
+    const all = await analysisStore.getAll(userId)
     const now = Date.now()
     
     const staleReports = all.filter(analysis => {
@@ -97,7 +107,7 @@ export async function GET(request: NextRequest) {
       }))
     })
   } catch (error: any) {
-    console.error('Get stale reports error:', error)
+    console.error('[Clean API] Error:', error)
     return NextResponse.json(
       { error: error.message || 'Failed to get stale reports' },
       { status: 500 }
