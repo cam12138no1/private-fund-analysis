@@ -225,18 +225,7 @@ export default function AnalysisModal({ analysis, onClose }: AnalysisModalProps)
                 </div>
               )}
 
-              {/* 投委会总结 */}
-              {fullAnalysis.investment_committee_summary && (
-                <div className="p-6 bg-gradient-to-r from-amber-50 to-orange-50 rounded-2xl border border-amber-100">
-                  <h3 className="text-sm font-semibold text-amber-700 mb-3 flex items-center gap-2">
-                    <Lightbulb className="h-4 w-4" />
-                    投委会总结
-                  </h3>
-                  <p className="text-slate-700 leading-relaxed whitespace-pre-wrap">
-                    {fullAnalysis.investment_committee_summary}
-                  </p>
-                </div>
-              )}
+              {/* 投委会总结已删除 - 只保留客观数据对比 */}
 
               {/* 关键指标表格 */}
               {fullAnalysis.results_table && fullAnalysis.results_table.length > 0 && (
@@ -411,41 +400,7 @@ export default function AnalysisModal({ analysis, onClose }: AnalysisModalProps)
                 </div>
               )}
 
-              {/* 最终判断 */}
-              {fullAnalysis.final_judgment && (
-                <div className="p-6 bg-gradient-to-r from-indigo-50 to-purple-50 rounded-2xl border border-indigo-100">
-                  <h3 className="text-sm font-semibold text-indigo-700 mb-4 flex items-center gap-2">
-                    <Shield className="h-4 w-4" />
-                    投资判断
-                  </h3>
-                  <div className="space-y-4">
-                    {fullAnalysis.final_judgment.confidence && (
-                      <div>
-                        <p className="text-sm font-medium text-green-700 mb-1">✓ 更有信心的点</p>
-                        <p className="text-sm text-slate-700">{fullAnalysis.final_judgment.confidence}</p>
-                      </div>
-                    )}
-                    {fullAnalysis.final_judgment.concerns && (
-                      <div>
-                        <p className="text-sm font-medium text-red-700 mb-1">⚠ 更担心的点</p>
-                        <p className="text-sm text-slate-700">{fullAnalysis.final_judgment.concerns}</p>
-                      </div>
-                    )}
-                    {fullAnalysis.final_judgment.watch_list && (
-                      <div>
-                        <p className="text-sm font-medium text-amber-700 mb-1">👁 接下来要盯</p>
-                        <p className="text-sm text-slate-700">{fullAnalysis.final_judgment.watch_list}</p>
-                      </div>
-                    )}
-                    {fullAnalysis.final_judgment.recommendation && (
-                      <div className="pt-4 border-t border-indigo-200">
-                        <p className="text-sm font-medium text-indigo-700 mb-1">💡 投资建议</p>
-                        <p className="text-sm text-slate-700">{fullAnalysis.final_judgment.recommendation}</p>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
+              {/* 投资判断已删除 - 只保留客观数据对比 */}
 
               {/* 研报对比 */}
               {fullAnalysis.research_comparison && (

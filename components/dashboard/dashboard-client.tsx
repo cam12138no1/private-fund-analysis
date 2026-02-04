@@ -330,23 +330,23 @@ export default function DashboardClient() {
     return 'bg-blue-100 text-blue-700'
   }
 
-  // 提取3句核心结论
+  // 提取核心结论 - 只保留客观事实，删除主观判断
   const getThreeConclusions = (analysis: Analysis) => {
     const conclusions: string[] = []
     
-    // 1. 一句话结论
+    // 1. 一句话结论（客观事实）
     if (analysis.one_line_conclusion) {
       conclusions.push(analysis.one_line_conclusion)
     }
     
-    // 2. 更有信心的点
-    if (analysis.final_judgment?.confidence) {
-      conclusions.push(`✓ ${analysis.final_judgment.confidence}`)
+    // 2. 可持续驱动（客观事实）
+    if (analysis.sustainability_risks?.sustainable_drivers?.[0]) {
+      conclusions.push(`✓ ${analysis.sustainability_risks.sustainable_drivers[0]}`)
     }
     
-    // 3. 更担心的点
-    if (analysis.final_judgment?.concerns) {
-      conclusions.push(`⚠ ${analysis.final_judgment.concerns}`)
+    // 3. 主要风险（客观事实）
+    if (analysis.sustainability_risks?.main_risks?.[0]) {
+      conclusions.push(`⚠ ${analysis.sustainability_risks.main_risks[0]}`)
     }
     
     return conclusions.slice(0, 3)
@@ -356,7 +356,7 @@ export default function DashboardClient() {
   const renderAnalysisCard = (analysis: Analysis) => {
     const conclusions = getThreeConclusions(analysis)
     const beatMiss = analysis.comparison_snapshot?.beat_miss || analysis.final_judgment?.net_impact
-    const recommendation = analysis.comparison_snapshot?.recommendation || analysis.final_judgment?.recommendation
+    // recommendation 已删除 - 只保留客观数据对比
 
     return (
       <button
@@ -399,11 +399,7 @@ export default function DashboardClient() {
               {beatMiss?.replace('Strong ', '').replace('Moderate ', '') || 'Inline'}
             </span>
           </div>
-          {recommendation && (
-            <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${getRecommendationColor(recommendation)}`}>
-              {recommendation}
-            </span>
-          )}
+{/* 投资建议已删除 - 只保留客观数据对比 */}
         </div>
 
         {/* 3 Key Conclusions */}
