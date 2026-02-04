@@ -299,9 +299,7 @@ export default function AnalysisView({ analysis, onBack }: AnalysisViewProps) {
       const mainRisks = (data.sustainability_risks.main_risks || []).map((r: string) => 
         `<div class="list-item"><div class="list-dot dot-red"></div><span>${r}</span></div>`
       ).join('')
-      const checkpoints = (data.sustainability_risks.checkpoints || []).map((c: string) => 
-        `<div class="list-item"><div class="list-dot dot-blue"></div><span>${c}</span></div>`
-      ).join('')
+      // checkpoints removed - only show objective facts
       
       risksHtml = `
         <div class="section">
@@ -310,7 +308,7 @@ export default function AnalysisView({ analysis, onBack }: AnalysisViewProps) {
             <div class="section-title">4) 可持续性与风险</div>
           </div>
           <div class="section-content">
-            <div class="grid-3">
+            <div class="grid-2">
               <div class="card card-green">
                 <div class="card-title" style="color: #166534;">可持续驱动</div>
                 ${sustainableDrivers || '<span style="color: #9ca3af;">-</span>'}
@@ -319,10 +317,7 @@ export default function AnalysisView({ analysis, onBack }: AnalysisViewProps) {
                 <div class="card-title" style="color: #991b1b;">主要风险</div>
                 ${mainRisks || '<span style="color: #9ca3af;">-</span>'}
               </div>
-              <div class="card card-blue">
-                <div class="card-title" style="color: #1e40af;">未来检查点</div>
-                ${checkpoints || '<span style="color: #9ca3af;">-</span>'}
-              </div>
+
             </div>
           </div>
         </div>
@@ -367,58 +362,7 @@ export default function AnalysisView({ analysis, onBack }: AnalysisViewProps) {
       `
     }
     
-    // 构建最终判断
-    let finalHtml = ''
-    if (data.final_judgment) {
-      const netImpact = data.final_judgment.net_impact || '-'
-      const netImpactClass = netImpact.toLowerCase().includes('strong beat') ? 'badge-green' :
-                            netImpact.toLowerCase().includes('miss') ? 'badge-red' : 'badge-gray'
-      
-      finalHtml = `
-        <div class="final-section">
-          <div style="font-size: 14px; font-weight: 700; margin-bottom: 12px;">6) 投委会判断</div>
-          <div class="final-grid">
-            <div class="final-card">
-              <div class="final-label">更有信心的点</div>
-              <div class="final-value">${data.final_judgment.confidence || '-'}</div>
-            </div>
-            <div class="final-card">
-              <div class="final-label">更担心的点</div>
-              <div class="final-value">${data.final_judgment.concerns || '-'}</div>
-            </div>
-            <div class="final-card">
-              <div class="final-label">接下来要盯</div>
-              <div class="final-value">${data.final_judgment.watch_list || '-'}</div>
-            </div>
-            <div class="final-card">
-              <div class="final-label">对长期叙事的影响</div>
-              <div class="final-value">${data.final_judgment.long_term_narrative || '-'}</div>
-            </div>
-          </div>
-          <div style="display: flex; align-items: center; gap: 20px; padding: 12px; background: rgba(255,255,255,0.1); border-radius: 6px;">
-            <div>
-              <div class="final-label">净影响</div>
-              <span class="badge ${netImpactClass}" style="font-size: 12px;">${netImpact}</span>
-            </div>
-            <div style="flex: 1;">
-              <div class="final-label">投资建议</div>
-              <div class="final-value" style="font-weight: 600;">${data.final_judgment.recommendation || '-'}</div>
-            </div>
-          </div>
-        </div>
-      `
-    }
-    
-    // 投委会总结
-    let summaryHtml = ''
-    if (data.investment_committee_summary) {
-      summaryHtml = `
-        <div class="summary-box">
-          <div class="summary-title">📋 投委会结论</div>
-          <div class="summary-text">${data.investment_committee_summary}</div>
-        </div>
-      `
-    }
+    // 投委会判断和投委会总结已删除 - 只保留客观事实对比
     
     return `
       ${styles}
@@ -440,8 +384,6 @@ export default function AnalysisView({ analysis, onBack }: AnalysisViewProps) {
       ${investmentHtml}
       ${risksHtml}
       ${modelImpactHtml}
-      ${finalHtml}
-      ${summaryHtml}
     `
   }
 
@@ -741,7 +683,7 @@ export default function AnalysisView({ analysis, onBack }: AnalysisViewProps) {
 
         {/* 可持续性与风险 */}
         {analysis.sustainability_risks && (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             {/* 可持续驱动 */}
             <Card className="border-0 shadow-sm">
               <CardHeader className="pb-2">
@@ -776,28 +718,6 @@ export default function AnalysisView({ analysis, onBack }: AnalysisViewProps) {
                     <li key={idx} className="text-sm text-gray-700 flex items-start gap-2">
                       <span className="w-1.5 h-1.5 bg-red-500 rounded-full mt-2 flex-shrink-0" />
                       {risk}
-                    </li>
-                  ))}
-                </ul>
-              </CardContent>
-            </Card>
-
-            {/* 未来检查点 */}
-            <Card className="border-0 shadow-sm">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-base flex items-center gap-2">
-                  <Eye className="h-4 w-4 text-blue-600" />
-                  未来检查点
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <ul className="space-y-2">
-                  {analysis.sustainability_risks.checkpoints?.map((cp: string, idx: number) => (
-                    <li key={idx} className="text-sm text-gray-700 flex items-start gap-2">
-                      <span className="inline-flex items-center justify-center w-4 h-4 bg-blue-100 text-blue-700 text-[10px] font-bold rounded flex-shrink-0">
-                        {idx + 1}
-                      </span>
-                      {cp}
                     </li>
                   ))}
                 </ul>
@@ -858,74 +778,6 @@ export default function AnalysisView({ analysis, onBack }: AnalysisViewProps) {
                   <p className="text-purple-900">{analysis.model_impact.logic_chain}</p>
                 </div>
               )}
-            </CardContent>
-          </Card>
-        )}
-
-        {/* 投委会判断 */}
-        {analysis.final_judgment && (
-          <Card className="border-0 shadow-sm bg-gradient-to-br from-slate-800 to-slate-900 text-white overflow-hidden">
-            <CardContent className="p-6">
-              <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
-                <div className="h-8 w-8 rounded-lg bg-white/10 flex items-center justify-center">
-                  <Shield className="h-4 w-4" />
-                </div>
-                6) 投委会判断
-              </h3>
-              
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                <div className="p-4 bg-white/10 rounded-xl">
-                  <p className="text-xs font-medium text-slate-300 mb-2">更有信心的点</p>
-                  <p className="text-white">{analysis.final_judgment.confidence || '-'}</p>
-                </div>
-                <div className="p-4 bg-white/10 rounded-xl">
-                  <p className="text-xs font-medium text-slate-300 mb-2">更担心的点</p>
-                  <p className="text-white">{analysis.final_judgment.concerns || '-'}</p>
-                </div>
-                <div className="p-4 bg-white/10 rounded-xl">
-                  <p className="text-xs font-medium text-slate-300 mb-2">接下来要盯</p>
-                  <p className="text-white">{analysis.final_judgment.watch_list || '-'}</p>
-                </div>
-                <div className="p-4 bg-white/10 rounded-xl">
-                  <p className="text-xs font-medium text-slate-300 mb-2">对长期叙事的影响</p>
-                  <p className="text-white">{analysis.final_judgment.long_term_narrative || '-'}</p>
-                </div>
-              </div>
-              
-              <div className="flex items-center gap-4 p-4 bg-white/10 rounded-xl">
-                <div>
-                  <p className="text-xs font-medium text-slate-300 mb-1">净影响</p>
-                  <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm font-bold ${
-                    analysis.final_judgment.net_impact?.toLowerCase().includes('strong beat') ? 'bg-green-500 text-white' :
-                    analysis.final_judgment.net_impact?.toLowerCase().includes('beat') ? 'bg-green-400 text-white' :
-                    analysis.final_judgment.net_impact?.toLowerCase().includes('miss') ? 'bg-red-500 text-white' :
-                    'bg-slate-600 text-white'
-                  }`}>
-                    {analysis.final_judgment.net_impact?.toLowerCase().includes('beat') && <TrendingUp className="h-3.5 w-3.5" />}
-                    {analysis.final_judgment.net_impact?.toLowerCase().includes('miss') && <TrendingDown className="h-3.5 w-3.5" />}
-                    {analysis.final_judgment.net_impact || '-'}
-                  </span>
-                </div>
-                <div className="flex-1">
-                  <p className="text-xs font-medium text-slate-300 mb-1">投资建议</p>
-                  <p className="text-white font-medium">{analysis.final_judgment.recommendation || '-'}</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* 投委会总结 */}
-        {analysis.investment_committee_summary && (
-          <Card className="border-0 shadow-sm bg-gradient-to-r from-amber-50 to-orange-50 border-amber-200">
-            <CardContent className="p-6">
-              <h3 className="text-lg font-bold text-amber-900 mb-3 flex items-center gap-2">
-                <FileText className="h-5 w-5 text-amber-600" />
-                投委会结论
-              </h3>
-              <p className="text-amber-900 leading-relaxed">
-                {analysis.investment_committee_summary}
-              </p>
             </CardContent>
           </Card>
         )}
