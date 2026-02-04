@@ -120,17 +120,340 @@ export default function AnalysisModal({ analysis, onClose }: AnalysisModalProps)
     loadFullAnalysis()
   }, [analysis.id])
 
-  // 导出PDF
+  // 导出PDF - 使用html2canvas + jsPDF生成专业PDF
   const handleExportPDF = async () => {
     setIsExporting(true)
     try {
-      // 使用浏览器打印功能
-      window.print()
+      const [html2canvasModule, jspdfModule] = await Promise.all([
+        import('html2canvas'),
+        import('jspdf')
+      ])
+      
+      const html2canvas = html2canvasModule.default
+      const { jsPDF } = jspdfModule
+      
+      // 创建临时容器用于渲染PDF内容
+      const container = document.createElement('div')
+      container.style.cssText = `
+        position: fixed;
+        left: -9999px;
+        top: 0;
+        width: 800px;
+        background: white;
+        padding: 40px;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      `
+      
+      container.innerHTML = buildPdfHtml(fullAnalysis)
+      document.body.appendChild(container)
+      
+      // 等待内容渲染完成
+      await new Promise(resolve => setTimeout(resolve, 300))
+      
+      const canvas = await html2canvas(container, {
+        scale: 2,
+        useCORS: true,
+        logging: false,
+        backgroundColor: '#ffffff',
+        allowTaint: true,
+        windowWidth: 800,
+      })
+      
+      document.body.removeChild(container)
+      
+      const imgData = canvas.toDataURL('image/png', 1.0)
+      const pdf = new jsPDF({
+        orientation: 'portrait',
+        unit: 'mm',
+        format: 'a4'
+      })
+      
+      const pdfWidth = pdf.internal.pageSize.getWidth()
+      const pdfHeight = pdf.internal.pageSize.getHeight()
+      const imgWidth = pdfWidth - 20
+      const imgHeight = (canvas.height * imgWidth) / canvas.width
+      
+      let heightLeft = imgHeight
+      let position = 10
+      
+      // 添加第一页
+      pdf.addImage(imgData, 'PNG', 10, position, imgWidth, imgHeight)
+      heightLeft -= (pdfHeight - 20)
+      
+      // 添加后续页面
+      while (heightLeft > 0) {
+        position = heightLeft - imgHeight + 10
+        pdf.addPage()
+        pdf.addImage(imgData, 'PNG', 10, position, imgWidth, imgHeight)
+        heightLeft -= (pdfHeight - 20)
+      }
+      
+      // 生成文件名：公司代码_年份Q季度_财报分析报告.pdf
+      const year = fullAnalysis.period?.match(/\d{4}/)?.[0] || 'FY'
+      const quarter = fullAnalysis.period?.match(/Q(\d)/)?.[1] || ''
+      const filename = `${fullAnalysis.company_symbol || 'Report'}_${year}${quarter ? `Q${quarter}` : ''}_财报分析报告.pdf`
+      pdf.save(filename)
     } catch (error) {
-      console.error('Export failed:', error)
+      console.error('PDF导出失败:', error)
+      alert('PDF导出失败，请尝试使用浏览器的打印功能 (Ctrl+P / Cmd+P)')
     } finally {
       setIsExporting(false)
     }
+  }
+
+  // 构建PDF专用HTML
+  const buildPdfHtml = (data: Analysis) => {
+    const styles = `
+      <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: #1f2937; line-height: 1.6; font-size: 13px; }
+        .header { display: flex; align-items: center; gap: 16px; margin-bottom: 24px; padding-bottom: 16px; border-bottom: 2px solid #e5e7eb; }
+        .logo { width: 48px; height: 48px; background: linear-gradient(135deg, #3b82f6, #4f46e5); border-radius: 10px; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 18px; }
+        .company-info h1 { font-size: 22px; font-weight: 700; color: #111827; }
+        .company-info p { font-size: 13px; color: #6b7280; margin-top: 2px; }
+        .section { margin-bottom: 20px; background: white; border-radius: 10px; border: 1px solid #e5e7eb; overflow: hidden; page-break-inside: avoid; }
+        .section-header { padding: 12px 16px; background: #f9fafb; border-bottom: 1px solid #e5e7eb; display: flex; align-items: center; gap: 10px; }
+        .section-icon { width: 28px; height: 28px; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 14px; }
+        .section-title { font-size: 14px; font-weight: 600; color: #111827; }
+        .section-content { padding: 16px; }
+        .conclusion-box { background: linear-gradient(135deg, #3b82f6, #4f46e5); color: white; padding: 20px; border-radius: 10px; margin-bottom: 20px; }
+        .conclusion-box h3 { font-size: 12px; color: rgba(255,255,255,0.8); margin-bottom: 6px; }
+        .conclusion-box p { font-size: 15px; font-weight: 500; line-height: 1.5; }
+        table { width: 100%; border-collapse: collapse; font-size: 12px; page-break-inside: avoid; }
+        th { padding: 10px 12px; text-align: left; font-size: 11px; font-weight: 600; color: #6b7280; text-transform: uppercase; background: #f9fafb; border-bottom: 1px solid #e5e7eb; }
+        td { padding: 10px 12px; border-bottom: 1px solid #f3f4f6; }
+        .text-right { text-align: right; }
+        .badge { display: inline-block; padding: 3px 8px; border-radius: 4px; font-size: 11px; font-weight: 500; }
+        .badge-green { background: #dcfce7; color: #166534; }
+        .badge-red { background: #fee2e2; color: #991b1b; }
+        .badge-gray { background: #f3f4f6; color: #4b5563; }
+        .text-green { color: #16a34a; }
+        .text-red { color: #dc2626; }
+        .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+        .grid-2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+        .card { padding: 12px; border-radius: 8px; border: 1px solid #e5e7eb; page-break-inside: avoid; }
+        .card-green { background: #f0fdf4; border-color: #bbf7d0; }
+        .card-blue { background: #eff6ff; border-color: #bfdbfe; }
+        .card-amber { background: #fffbeb; border-color: #fde68a; }
+        .card-title { font-size: 12px; font-weight: 600; margin-bottom: 6px; }
+        .card-text { font-size: 11px; color: #4b5563; line-height: 1.5; }
+        .list-item { display: flex; align-items: flex-start; gap: 6px; margin-bottom: 6px; font-size: 12px; }
+        .list-dot { width: 5px; height: 5px; border-radius: 50%; margin-top: 6px; flex-shrink: 0; }
+        .dot-green { background: #22c55e; }
+        .dot-red { background: #ef4444; }
+        .dot-blue { background: #3b82f6; }
+      </style>
+    `
+    
+    // 构建结果表格
+    let resultsTableHtml = ''
+    if (data.results_table && data.results_table.length > 0) {
+      const rows = data.results_table.map((row) => {
+        const deltaClass = row.delta?.startsWith('-') ? 'text-red' : (row.delta?.startsWith('+') ? 'text-green' : '')
+        const assessmentClass = row.assessment?.toLowerCase().includes('beat') || row.assessment?.includes('超预期') ? 'badge-green' : 
+                               row.assessment?.toLowerCase().includes('miss') || row.assessment?.includes('不及') ? 'badge-red' : 'badge-gray'
+        return `
+          <tr>
+            <td style="font-weight: 500;">${row.metric || '-'}</td>
+            <td class="text-right" style="font-weight: 600;">${row.actual || '-'}</td>
+            <td class="text-right" style="color: #6b7280;">${row.consensus || '-'}</td>
+            <td class="text-right ${deltaClass}" style="font-weight: 600;">${row.delta || '-'}</td>
+            <td><span class="badge ${assessmentClass}">${row.assessment || '-'}</span></td>
+          </tr>
+        `
+      }).join('')
+      
+      resultsTableHtml = `
+        <div class="section">
+          <div class="section-header">
+            <div class="section-icon" style="background: #dbeafe; color: #2563eb;">📊</div>
+            <div class="section-title">1) 业绩与指引 vs 市场预期</div>
+          </div>
+          <div class="section-content">
+            <table>
+              <thead>
+                <tr>
+                  <th>指标</th>
+                  <th class="text-right">实际值</th>
+                  <th class="text-right">市场预期</th>
+                  <th class="text-right">差异</th>
+                  <th>评估</th>
+                </tr>
+              </thead>
+              <tbody>${rows}</tbody>
+            </table>
+          </div>
+        </div>
+      `
+    }
+    
+    // 构建驱动因素
+    let driversHtml = ''
+    if (data.drivers) {
+      driversHtml = `
+        <div class="section">
+          <div class="section-header">
+            <div class="section-icon" style="background: #f3e8ff; color: #7c3aed;">⚡</div>
+            <div class="section-title">2) 增长驱动拆解</div>
+          </div>
+          <div class="section-content">
+            <div class="grid-3">
+              <div class="card card-green">
+                <div class="card-title" style="color: #166534;">${data.drivers.demand?.title || 'A. 需求/量'}</div>
+                ${data.drivers.demand?.metrics ? `<div class="card-text"><strong>指标：</strong>${data.drivers.demand.metrics}</div>` : ''}
+                <div class="card-text"><strong>变化：</strong>${data.drivers.demand?.change || '-'}</div>
+                <div class="card-text"><strong>幅度：</strong><span class="text-green">${data.drivers.demand?.magnitude || '-'}</span></div>
+                <div class="card-text"><strong>原因：</strong>${data.drivers.demand?.reason || '-'}</div>
+              </div>
+              <div class="card card-blue">
+                <div class="card-title" style="color: #1e40af;">${data.drivers.monetization?.title || 'B. 变现/单价'}</div>
+                ${data.drivers.monetization?.metrics ? `<div class="card-text"><strong>指标：</strong>${data.drivers.monetization.metrics}</div>` : ''}
+                <div class="card-text"><strong>变化：</strong>${data.drivers.monetization?.change || '-'}</div>
+                <div class="card-text"><strong>幅度：</strong><span style="color: #2563eb;">${data.drivers.monetization?.magnitude || '-'}</span></div>
+                <div class="card-text"><strong>原因：</strong>${data.drivers.monetization?.reason || '-'}</div>
+              </div>
+              <div class="card card-amber">
+                <div class="card-title" style="color: #92400e;">${data.drivers.efficiency?.title || 'C. 内部效率'}</div>
+                ${data.drivers.efficiency?.metrics ? `<div class="card-text"><strong>指标：</strong>${data.drivers.efficiency.metrics}</div>` : ''}
+                <div class="card-text"><strong>变化：</strong>${data.drivers.efficiency?.change || '-'}</div>
+                <div class="card-text"><strong>幅度：</strong><span style="color: #d97706;">${data.drivers.efficiency?.magnitude || '-'}</span></div>
+                <div class="card-text"><strong>原因：</strong>${data.drivers.efficiency?.reason || '-'}</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      `
+    }
+    
+    // 构建投入与ROI
+    let investmentHtml = ''
+    if (data.investment_roi) {
+      const roiEvidence = (data.investment_roi.roi_evidence || []).map((e: string) => 
+        `<div class="list-item"><div class="list-dot dot-green"></div><span>${e}</span></div>`
+      ).join('')
+      
+      investmentHtml = `
+        <div class="section">
+          <div class="section-header">
+            <div class="section-icon" style="background: #e0e7ff; color: #4f46e5;">💰</div>
+            <div class="section-title">3) 投入与ROI分析</div>
+          </div>
+          <div class="section-content">
+            <div class="grid-2" style="margin-bottom: 12px;">
+              <div class="card"><strong>CapEx变化：</strong>${data.investment_roi.capex_change || '-'}</div>
+              <div class="card"><strong>Opex变化：</strong>${data.investment_roi.opex_change || '-'}</div>
+            </div>
+            <div class="card" style="margin-bottom: 12px;"><strong>投入方向：</strong>${data.investment_roi.investment_direction || '-'}</div>
+            ${roiEvidence ? `
+              <div class="card card-green" style="margin-bottom: 12px;">
+                <div class="card-title" style="color: #166534;">已体现的ROI证据</div>
+                ${roiEvidence}
+              </div>
+            ` : ''}
+            <div class="card card-amber">
+              <div class="card-title" style="color: #92400e;">管理层底线框架</div>
+              <div class="card-text">${data.investment_roi.management_commitment || '-'}</div>
+            </div>
+          </div>
+        </div>
+      `
+    }
+    
+    // 构建可持续性与风险（只保留客观事实）
+    let risksHtml = ''
+    if (data.sustainability_risks) {
+      const sustainableDrivers = (data.sustainability_risks.sustainable_drivers || []).map((d: string) => 
+        `<div class="list-item"><div class="list-dot dot-green"></div><span>${d}</span></div>`
+      ).join('')
+      const mainRisks = (data.sustainability_risks.main_risks || []).map((r: string) => 
+        `<div class="list-item"><div class="list-dot dot-red"></div><span>${r}</span></div>`
+      ).join('')
+      
+      risksHtml = `
+        <div class="section">
+          <div class="section-header">
+            <div class="section-icon" style="background: #fef3c7; color: #d97706;">⚠️</div>
+            <div class="section-title">4) 可持续性与风险</div>
+          </div>
+          <div class="section-content">
+            <div class="grid-2">
+              <div class="card card-green">
+                <div class="card-title" style="color: #166534;">可持续驱动</div>
+                ${sustainableDrivers || '<span style="color: #9ca3af;">-</span>'}
+              </div>
+              <div class="card" style="background: #fef2f2; border-color: #fecaca;">
+                <div class="card-title" style="color: #991b1b;">主要风险</div>
+                ${mainRisks || '<span style="color: #9ca3af;">-</span>'}
+              </div>
+            </div>
+          </div>
+        </div>
+      `
+    }
+    
+    // 构建模型影响
+    let modelImpactHtml = ''
+    if (data.model_impact) {
+      const upgradeFactors = (data.model_impact.upgrade_factors || []).map((f: string) => 
+        `<div class="list-item"><div class="list-dot dot-green"></div><span>${f}</span></div>`
+      ).join('')
+      const downgradeFactors = (data.model_impact.downgrade_factors || []).map((f: string) => 
+        `<div class="list-item"><div class="list-dot dot-red"></div><span>${f}</span></div>`
+      ).join('')
+      
+      modelImpactHtml = `
+        <div class="section">
+          <div class="section-header">
+            <div class="section-icon" style="background: #e0e7ff; color: #4f46e5;">📈</div>
+            <div class="section-title">5) 模型影响（估值假设变化）</div>
+          </div>
+          <div class="section-content">
+            <div class="grid-2" style="margin-bottom: 12px;">
+              <div class="card card-green">
+                <div class="card-title" style="color: #166534;">上调</div>
+                ${upgradeFactors || '<span style="color: #9ca3af;">-</span>'}
+              </div>
+              <div class="card" style="background: #fef2f2; border-color: #fecaca;">
+                <div class="card-title" style="color: #991b1b;">下调</div>
+                ${downgradeFactors || '<span style="color: #9ca3af;">-</span>'}
+              </div>
+            </div>
+            ${data.model_impact.logic_chain ? `
+              <div class="card card-blue">
+                <div class="card-title" style="color: #1e40af;">逻辑链</div>
+                <div class="card-text">${data.model_impact.logic_chain}</div>
+              </div>
+            ` : ''}
+          </div>
+        </div>
+      `
+    }
+    
+    // 提取年份和季度用于标题
+    const year = data.period?.match(/\d{4}/)?.[0] || ''
+    const quarter = data.period?.match(/Q(\d)/)?.[1] || ''
+    
+    return `
+      ${styles}
+      <div class="header">
+        <div class="logo">${(data.company_symbol || '??').slice(0, 2)}</div>
+        <div class="company-info">
+          <h1>${data.company_name || '未知公司'}</h1>
+          <p>${data.company_symbol || ''} · ${quarter ? `Q${quarter}` : 'FY'} ${year} · 财报分析报告</p>
+        </div>
+      </div>
+      
+      <div class="conclusion-box">
+        <h3>📌 一句话结论</h3>
+        <p>${data.one_line_conclusion || '暂无结论'}</p>
+      </div>
+      
+      ${resultsTableHtml}
+      ${driversHtml}
+      ${investmentHtml}
+      ${risksHtml}
+      ${modelImpactHtml}
+    `
   }
 
   // 获取Beat/Miss样式
