@@ -152,6 +152,9 @@ export const getAnalysisPrompt = (companyCategory: string, hasResearchReport: bo
 
 注意：此时Beat/Miss判断基于公司指引，需在输出中明确说明`
 
+  // 使用转义的美元符号避免模板字符串解析问题
+  const dollarSign = '$'
+
   return `${categoryContext}
 
 ${researchComparisonInstruction}
@@ -177,18 +180,18 @@ ${researchComparisonInstruction}
     }
   },
 
-  "one_line_conclusion": "【一句话结论】格式：{核心收入}${实际值} {Beat/Miss} consensus {X%}（{来源}），增长由{驱动A +X%}+{驱动B +X%}贡献；{风险点}值得关注。",
+  "one_line_conclusion": "【一句话结论】格式：{核心收入}{实际值} {Beat/Miss} consensus {X%}（{来源}），增长由{驱动A +X%}+{驱动B +X%}贡献；{风险点}值得关注。",
 
   "results_table": [
     {
       "metric": "Revenue",
-      "actual": "$XX.XB",
+      "actual": "${dollarSign}XX.XB",
       "actual_period": "Q4 FY25",
-      "prior_year": "$XX.XB",
+      "prior_year": "${dollarSign}XX.XB",
       "prior_year_period": "Q4 FY24",
       "yoy_change": "+XX.X%",
       "yoy_calculation": "(XX.X - XX.X) / XX.X = XX.X%",
-      "consensus": "$XX.XB",
+      "consensus": "${dollarSign}XX.XB",
       "consensus_source": "来源机构名称/公司指引/历史区间",
       "beat_miss_pct": "+X.X%",
       "beat_miss_calculation": "(XX.X - XX.X) / XX.X = X.X%",
@@ -198,13 +201,13 @@ ${researchComparisonInstruction}
     },
     {
       "metric": "Operating Income (Non-GAAP)",
-      "actual": "$XX.XB",
+      "actual": "${dollarSign}XX.XB",
       "actual_period": "Q4 FY25",
-      "prior_year": "$XX.XB",
+      "prior_year": "${dollarSign}XX.XB",
       "prior_year_period": "Q4 FY24",
       "yoy_change": "+XX.X%",
       "yoy_calculation": "计算过程",
-      "consensus": "$XX.XB",
+      "consensus": "${dollarSign}XX.XB",
       "consensus_source": "来源",
       "beat_miss_pct": "+X.X%",
       "beat_miss_calculation": "计算过程",
@@ -214,13 +217,13 @@ ${researchComparisonInstruction}
     },
     {
       "metric": "EPS (Diluted, Non-GAAP)",
-      "actual": "$X.XX",
+      "actual": "${dollarSign}X.XX",
       "actual_period": "Q4 FY25",
-      "prior_year": "$X.XX",
+      "prior_year": "${dollarSign}X.XX",
       "prior_year_period": "Q4 FY24",
       "yoy_change": "+XX.X%",
       "yoy_calculation": "计算过程",
-      "consensus": "$X.XX",
+      "consensus": "${dollarSign}X.XX",
       "consensus_source": "来源",
       "beat_miss_pct": "+X.X%",
       "beat_miss_calculation": "计算过程",
@@ -233,17 +236,17 @@ ${researchComparisonInstruction}
   "guidance_comparison": {
     "next_quarter": {
       "metric": "Q1 FY26 Revenue Guidance",
-      "company_guidance_range": "$XX.X - $XX.XB",
-      "company_guidance_midpoint": "$XX.XB",
-      "street_expectation": "$XX.XB",
+      "company_guidance_range": "${dollarSign}XX.X - ${dollarSign}XX.XB",
+      "company_guidance_midpoint": "${dollarSign}XX.XB",
+      "street_expectation": "${dollarSign}XX.XB",
       "street_source": "来源/公司指引/数据未披露",
       "delta_vs_street": "+X.X%",
       "delta_calculation": "计算过程"
     },
     "full_year": {
       "metric": "FY26 Revenue Guidance",
-      "company_guidance": "如有披露/$数据未披露",
-      "street_expectation": "如有/$数据未披露",
+      "company_guidance": "如有披露/${dollarSign}数据未披露",
+      "street_expectation": "如有/${dollarSign}数据未披露",
       "delta_vs_street": ""
     }
   },
@@ -302,14 +305,14 @@ ${researchComparisonInstruction}
 
   "investment_roi": {
     "capex": {
-      "this_quarter": "$XX.XB",
-      "prior_year_quarter": "$XX.XB",
+      "this_quarter": "${dollarSign}XX.XB",
+      "prior_year_quarter": "${dollarSign}XX.XB",
       "yoy_change": "+XX%",
-      "full_year_guidance": "$XX-XXB",
-      "vs_prior_guidance": "上调/下调/维持 $XB"
+      "full_year_guidance": "${dollarSign}XX-XXB",
+      "vs_prior_guidance": "上调/下调/维持 ${dollarSign}XB"
     },
     "opex_growth": {
-      "this_quarter": "$XX.XB",
+      "this_quarter": "${dollarSign}XX.XB",
       "yoy_change": "+XX%",
       "primary_drivers": "增长主因（人员/研发/营销）"
     },
@@ -357,25 +360,25 @@ ${researchComparisonInstruction}
 
   "comparison_snapshot": {
     "revenue": {
-      "value": "$XX.XB",
+      "value": "${dollarSign}XX.XB",
       "yoy": "+XX.X%",
       "vs_consensus": "+X.X%"
     },
     "operating_income": {
-      "value": "$XX.XB",
+      "value": "${dollarSign}XX.XB",
       "yoy": "+XX.X%",
       "margin": "XX.X%"
     },
     "eps": {
-      "value": "$X.XX",
+      "value": "${dollarSign}X.XX",
       "yoy": "+XX.X%",
       "vs_consensus": "+X.X%"
     },
     "guidance_vs_street": "+X.X%（下季指引 vs 预期）",
     "overall_assessment": "Strong Beat/Moderate Beat/Inline/Moderate Miss/Strong Miss",
     "assessment_basis": "Revenue Beat +X.X%, EPS Beat +X.X%, Guidance Beat +X.X%",
-    "core_driver_quantified": "核心驱动量化（如：DC收入+XX%至$XXB，占比XX%）",
-    "main_concern_quantified": "主要关注点量化（如：CapEx +XX%至$XXB，ROI待验证）"
+    "core_driver_quantified": "核心驱动量化（如：DC收入+XX%至${dollarSign}XXB，占比XX%）",
+    "main_concern_quantified": "主要关注点量化（如：CapEx +XX%至${dollarSign}XXB，ROI待验证）"
   },
 
   "data_verification": {
@@ -385,9 +388,9 @@ ${researchComparisonInstruction}
       "yoy_manual_check": "手工验算：(XX.X - XX.X) / XX.X = XX.X%"
     },
     "consistency_check": {
-      "results_table_revenue": "$XX.XB",
-      "comparison_snapshot_revenue": "$XX.XB",
-      "is_consistent": true/false
+      "results_table_revenue": "${dollarSign}XX.XB",
+      "comparison_snapshot_revenue": "${dollarSign}XX.XB",
+      "is_consistent": true
     }
   },
 
@@ -404,6 +407,8 @@ ${researchComparisonInstruction}
 // ============================================================
 
 export const getResearchComparisonPrompt = () => {
+  const dollarSign = '$'
+  
   return `
 【研报对比分析 - 额外输出字段】
 
@@ -415,15 +420,15 @@ export const getResearchComparisonPrompt = () => {
   "expectations_vs_actual": [
     {
       "metric": "Revenue",
-      "analyst_expectation": "$XX.XB",
-      "actual": "$XX.XB",
+      "analyst_expectation": "${dollarSign}XX.XB",
+      "actual": "${dollarSign}XX.XB",
       "delta": "+X.X%",
       "delta_calculation": "(实际-预期)/预期 = X.X%"
     },
     {
       "metric": "EPS",
-      "analyst_expectation": "$X.XX",
-      "actual": "$X.XX",
+      "analyst_expectation": "${dollarSign}X.XX",
+      "actual": "${dollarSign}X.XX",
       "delta": "+X.X%",
       "delta_calculation": "计算过程"
     },
@@ -436,10 +441,10 @@ export const getResearchComparisonPrompt = () => {
     }
   ],
   "beat_items": [
-    "超预期项1：{指标}实际${值} vs 预期${值}，Beat +X.X%，原因：{原因}"
+    "超预期项1：{指标}实际{值} vs 预期{值}，Beat +X.X%，原因：{原因}"
   ],
   "miss_items": [
-    "不及预期项1：{指标}实际${值} vs 预期${值}，Miss -X.X%，原因：{原因}"
+    "不及预期项1：{指标}实际{值} vs 预期{值}，Miss -X.X%，原因：{原因}"
   ],
   "analyst_assumptions_vs_reality": "分析师的关键假设 vs 实际情况的差异",
   "potential_blind_spots": "分析师可能忽略或低估的点"
@@ -452,6 +457,8 @@ export const getResearchComparisonPrompt = () => {
 // ============================================================
 
 export const getComparisonExtractionPrompt = () => {
+  const dollarSign = '$'
+  
   return `
 从分析结果中提取以下关键字段，用于多公司横向对比：
 
@@ -459,12 +466,12 @@ export const getComparisonExtractionPrompt = () => {
   "company_symbol": "股票代码",
   "quarter": "Q4 FY25",
   "revenue": {
-    "value": "$XX.XB",
+    "value": "${dollarSign}XX.XB",
     "yoy": "+XX.X%",
     "beat_miss": "+X.X%"
   },
   "eps": {
-    "value": "$X.XX",
+    "value": "${dollarSign}X.XX",
     "yoy": "+XX.X%",
     "beat_miss": "+X.X%"
   },
