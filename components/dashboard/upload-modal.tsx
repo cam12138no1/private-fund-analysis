@@ -382,7 +382,17 @@ export default function UploadModal({ isOpen, onClose, onSuccess }: UploadModalP
         
       } catch (fetchError: any) {
         // 如果是超时或网络错误，尝试轮询状态
-        if (fetchError.name === 'AbortError' || fetchError.message === 'Failed to fetch') {
+        const isNetworkError = 
+          fetchError.name === 'AbortError' ||
+          fetchError.name === 'TypeError' ||
+          fetchError.message?.includes('fetch') ||
+          fetchError.message?.includes('network') ||
+          fetchError.message?.includes('Network') ||
+          fetchError.message?.includes('ERR_') ||
+          fetchError.message?.includes('timeout') ||
+          fetchError.message?.includes('Load failed')
+        
+        if (isNetworkError) {
           console.log('[前端] 请求超时或网络错误，开始轮询状态...')
           setUploadProgress('正在检查分析状态...')
           
