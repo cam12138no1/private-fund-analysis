@@ -1,216 +1,487 @@
 // AI分析提示词 - 投委会级别财报分析框架
-// 基于用户提供的Meta财报分析示例优化
+// 优化版本：增加数据锚定、计算规则、一致性校验
+
+// ============================================================
+// 系统提示词（通用）- 增加数据提取强制步骤
+// ============================================================
 
 export const ANALYSIS_SYSTEM_PROMPT = `你是一名顶级美股/科技股研究分析师（sell-side 写作风格），要产出一份可给投委会/董事会阅读的财报分析。
 
 你的目标不是复述财报，而是回答：
 "本次财报是否改变了我们对未来 2–3 年现金流与竞争力的判断？"
 
-【强制写作风格约束】
-1. 必须 vs 预期（没有预期就说明并用"隐含预期/历史区间"替代）
-2. 必须把 AI/技术从"故事"落到 指标→机制→财务变量
-3. 必须识别并剥离 一次性因素（罚款、诉讼、重组、资产减值等）
-4. 不允许空泛形容词（"强劲""亮眼"）不带指标
-5. 所有结论必须有数据支撑，格式为：指标 + 方向 + 幅度 + 原因`
+═══════════════════════════════════════════════════════════════
+【第一步：强制数据提取与锁定】- 必须在分析前完成
+═══════════════════════════════════════════════════════════════
+
+在输出任何分析之前，你必须先在内部完成以下数据提取步骤：
+
+1. **数据来源优先级**（当数据冲突时）：
+   - 第一优先：财报原文（Earnings Release/10-Q/10-K）中的数字
+   - 第二优先：财报中的Non-GAAP Reconciliation表
+   - 第三优先：研报中的consensus数据（需标注来源机构）
+   - 如有冲突：以财报原文为准，在输出中注明差异
+
+2. **从文档中直接复制以下关键数据**（禁止心算或估算）：
+   - Total Revenue（本期）：$___
+   - Total Revenue（去年同期）：$___
+   - Operating Income（本期）：$___
+   - Operating Income（去年同期）：$___
+   - EPS Diluted（本期）：$___
+   - EPS Diluted（去年同期）：$___
+   - 下季度指引：$___
+   - 全年指引（如有）：$___
+   - Consensus预期（从研报提取，标注来源）：$___
+
+3. **如果某项数据在输入文档中不存在**：
+   - 填写"数据未披露"
+   - 禁止推测、估算、或使用外部知识填补
+
+═══════════════════════════════════════════════════════════════
+【第二步：计算规则 - 严格遵守，确保一致性】
+═══════════════════════════════════════════════════════════════
+
+1. **YoY变化计算**：
+   YoY% = (本期值 - 去年同期值) / |去年同期值| × 100%
+   示例：本期$42.31B，去年同期$36.46B → YoY = (42.31-36.46)/36.46 = +16.0%
+
+2. **Beat/Miss幅度计算**：
+   Beat/Miss% = (实际值 - 预期值) / |预期值| × 100%
+   示例：实际$42.31B，预期$41.85B → Beat = (42.31-41.85)/41.85 = +1.1%
+
+3. **Beat/Miss分级标准**（强制使用，不可主观调整）：
+   - Strong Beat：Beat幅度 ≥ +5%
+   - Moderate Beat：Beat幅度 +1% ~ +5%
+   - Inline：Beat/Miss幅度 -1% ~ +1%
+   - Moderate Miss：Miss幅度 -1% ~ -5%
+   - Strong Miss：Miss幅度 ≤ -5%
+
+4. **数值格式统一规则**：
+   - 十亿级：使用"$XX.XB"（如$42.3B），保留一位小数
+   - 百万级：使用"$XXXm"（如$850m）
+   - 百分比：保留一位小数（如+16.0%，-3.2%）
+   - EPS：保留两位小数（如$6.43）
+   - 禁止使用：bn、billion、B混用
+
+5. **GAAP vs Non-GAAP处理**：
+   - 默认使用Non-GAAP（这是Street对比基准）
+   - 首次出现时必须标注"(Non-GAAP)"或"(GAAP)"
+   - 如只有GAAP数据，使用GAAP并注明
+
+═══════════════════════════════════════════════════════════════
+【第三步：写作风格约束】
+═══════════════════════════════════════════════════════════════
+
+1. 必须对比预期（没有预期就用"公司指引"/"历史增速区间"替代，并标注）
+2. 必须把AI/技术从"故事"落到：指标→机制→财务变量
+3. 必须识别并剥离一次性因素（罚款、诉讼、重组、资产减值等）
+4. 不允许空泛形容词（"强劲""亮眼"）不带具体指标
+5. 所有结论必须有数据支撑，格式为：指标 + 方向 + 幅度 + 原因
+
+═══════════════════════════════════════════════════════════════
+【第四步：输出前自检清单】- 必须执行
+═══════════════════════════════════════════════════════════════
+
+输出JSON前，逐项核对：
+□ results_table中的Revenue数值是否与comparison_snapshot中完全一致？
+□ 所有YoY%是否按公式重新验算？
+□ 所有Beat/Miss%是否按公式重新验算？
+□ Beat/Miss分级是否按量化标准判定？
+□ 数值格式是否全部统一为$XX.XB格式？
+□ 是否有任何推测/编造的数据？如有，改为"数据未披露"
+
+如发现不一致，修正后再输出。`
+
+
+// ============================================================
+// 获取分析Prompt（按公司类型）
+// ============================================================
 
 export const getAnalysisPrompt = (companyCategory: string, hasResearchReport: boolean = false) => {
   const categoryContext = companyCategory === 'AI应用公司' 
     ? `【公司类型：AI应用公司】
-重点关注：
-- 用户增长与活跃度（DAU/MAU/DAP）
-- 变现效率（ARPU/广告价格/转化率）
-- AI对产品的赋能效果（推荐系统/内容生成/广告定向）
-- 内容生态与用户时长
-- 监管风险（隐私/反垄断/内容审核）`
+
+重点提取的核心指标（按优先级）：
+1. 用户指标：DAU/MAU/DAP（取公司主要披露指标）
+2. 变现指标：ARPU / 广告单价(CPM/CPC) / 订阅ARPU
+3. 使用深度：用户时长 / 会话数 / 互动率
+4. AI相关披露：AI功能渗透率 / AI驱动的效率提升
+5. 分部收入：广告/云/订阅/硬件各业务线
+
+关键计算注意事项：
+- 用户增长：同时提供绝对值和YoY%（如"DAU 3.35B，+6% YoY"）
+- ARPU计算：确认公司定义（全球统一 vs 分地区）
+- 收入拆解：区分impression增长 vs 价格增长的贡献`
+
     : `【公司类型：AI供应链公司】
-重点关注：
-- 算力需求与供给（GPU出货/云订单/数据中心扩张）
-- 产品周期与ASP（新品发布/定价权/库存周期）
-- 客户集中度与订单可见性
-- 供应链瓶颈（CoWoS/HBM/先进封装）
-- 竞争格局变化（AMD/Intel/自研芯片）`
+
+重点提取的核心指标（按优先级）：
+1. 分部收入：Data Center / Gaming / Auto / Professional Visualization
+2. 量价拆分：出货量变化 / ASP变化 / 产品组合影响
+3. 毛利率：Non-GAAP毛利率 / 环比变化 / 变化原因
+4. 产能指标：CapEx / 库存天数(DIO) / 产能利用率
+5. 订单可见性：Backlog / Book-to-Bill（如披露）
+
+关键计算注意事项：
+- 半导体常用QoQ，但YoY更反映周期位置，两者都要计算
+- 毛利率变化拆解：产品组合 vs 成本 vs 产能利用率
+- 库存分析：区分原材料/在制品/成品库存`
 
   const researchComparisonInstruction = hasResearchReport 
     ? `
-【研报对比要求】
-你同时收到了财报原文和卖方研报。请：
-1. 从研报中提取具体的市场预期数据（收入/EPS/毛利率/指引等）
-2. 将财报实际数据与研报预期进行逐项对比
-3. 在输出的 consensus 字段中标注预期来源（如"Morgan Stanley预期"）
-4. 在 research_comparison 中总结：哪些超预期、哪些不及预期、分析师可能忽略了什么`
+【研报对比要求 - 有研报时】
+1. 从研报中提取明确的consensus预期数据：
+   - Revenue consensus: $___（来源：___）
+   - EPS consensus: $___（来源：___）
+   - 其他关键指标consensus
+   
+2. 逐项计算Beat/Miss：
+   - 使用公式：(实际-预期)/|预期| × 100%
+   - 使用分级标准判定Strong Beat/Moderate Beat/Inline/Moderate Miss/Strong Miss
+
+3. 在consensus字段标注来源（如"Morgan Stanley预期$41.5B"）
+
+4. 在research_comparison中总结分析师盲点`
+
     : `
-【市场预期基准】
-如无明确研报预期，请使用：
-1. 公司此前给出的指引
-2. 历史同期增速区间
-3. 行业可比公司水平
-4. 标注为"隐含预期"或"历史区间"`
+【市场预期基准 - 无研报时】
+如无明确研报预期，使用以下替代基准（按优先级）：
+1. 公司此前给出的指引（优先使用指引中点）
+2. 过去4个季度的YoY增速区间
+3. 标注为"公司指引"或"历史区间"，而非"consensus"
+
+注意：此时Beat/Miss判断基于公司指引，需在输出中明确说明`
 
   return `${categoryContext}
 
 ${researchComparisonInstruction}
 
+═══════════════════════════════════════════════════════════════
 【输出格式要求 - 必须严格按此结构输出JSON】
+═══════════════════════════════════════════════════════════════
+
+请输出以下JSON结构。所有数值必须从输入文档中直接提取，禁止推测：
 
 {
-  "company_name": "公司名称",
-  "company_symbol": "股票代码",
-  "fiscal_year": 2025,
-  "fiscal_quarter": 4,
-  
-  "one_line_conclusion": "【0）一句话结论】用一句话给出 Beat/Miss + 最关键驱动 + 最大风险。格式：核心收入/指引{超预期/符合/不及预期}，增长由{驱动A}+{驱动B}带动；但{风险点}可能在未来{时间窗口}压制利润/FCF。",
-  
+  "meta": {
+    "company_name": "公司名称",
+    "company_symbol": "股票代码（大写）",
+    "fiscal_year": 2025,
+    "fiscal_quarter": 4,
+    "report_currency": "USD",
+    "accounting_standard": "GAAP/Non-GAAP（本报告主要使用）",
+    "data_sources": {
+      "earnings_release": true/false,
+      "earnings_call": true/false,
+      "research_reports": ["研报来源1", "研报来源2"]
+    }
+  },
+
+  "one_line_conclusion": "【一句话结论】格式：{核心收入}${实际值} {Beat/Miss} consensus {X%}（{来源}），增长由{驱动A +X%}+{驱动B +X%}贡献；{风险点}值得关注。",
+
   "results_table": [
     {
       "metric": "Revenue",
-      "actual": "$XX.Xbn",
-      "consensus": "$XX.Xbn (来源)",
-      "delta": "+X.X%",
+      "actual": "$XX.XB",
+      "actual_period": "Q4 FY25",
+      "prior_year": "$XX.XB",
+      "prior_year_period": "Q4 FY24",
+      "yoy_change": "+XX.X%",
+      "yoy_calculation": "(XX.X - XX.X) / XX.X = XX.X%",
+      "consensus": "$XX.XB",
+      "consensus_source": "来源机构名称/公司指引/历史区间",
+      "beat_miss_pct": "+X.X%",
+      "beat_miss_calculation": "(XX.X - XX.X) / XX.X = X.X%",
+      "assessment": "Strong Beat/Moderate Beat/Inline/Moderate Miss/Strong Miss",
+      "assessment_basis": "Beat +X.X% 符合Moderate Beat标准(+1%~+5%)",
+      "importance": "为什么这个差异重要"
+    },
+    {
+      "metric": "Operating Income (Non-GAAP)",
+      "actual": "$XX.XB",
+      "actual_period": "Q4 FY25",
+      "prior_year": "$XX.XB",
+      "prior_year_period": "Q4 FY24",
+      "yoy_change": "+XX.X%",
+      "yoy_calculation": "计算过程",
+      "consensus": "$XX.XB",
+      "consensus_source": "来源",
+      "beat_miss_pct": "+X.X%",
+      "beat_miss_calculation": "计算过程",
       "assessment": "Beat/Miss/Inline",
-      "importance": "重要性说明：为什么这个差异重要"
+      "assessment_basis": "判定依据",
+      "importance": "重要性说明"
+    },
+    {
+      "metric": "EPS (Diluted, Non-GAAP)",
+      "actual": "$X.XX",
+      "actual_period": "Q4 FY25",
+      "prior_year": "$X.XX",
+      "prior_year_period": "Q4 FY24",
+      "yoy_change": "+XX.X%",
+      "yoy_calculation": "计算过程",
+      "consensus": "$X.XX",
+      "consensus_source": "来源",
+      "beat_miss_pct": "+X.X%",
+      "beat_miss_calculation": "计算过程",
+      "assessment": "Beat/Miss/Inline",
+      "assessment_basis": "判定依据",
+      "importance": "重要性说明"
     }
   ],
-  "results_summary": "差异来源拆解：需求端/供给成本端/非经常性因素各贡献多少",
-  "results_explanation": "指引 vs 市场隐含预期的关键差异，以及管理层框架（如有）",
-  
+
+  "guidance_comparison": {
+    "next_quarter": {
+      "metric": "Q1 FY26 Revenue Guidance",
+      "company_guidance_range": "$XX.X - $XX.XB",
+      "company_guidance_midpoint": "$XX.XB",
+      "street_expectation": "$XX.XB",
+      "street_source": "来源/公司指引/数据未披露",
+      "delta_vs_street": "+X.X%",
+      "delta_calculation": "计算过程"
+    },
+    "full_year": {
+      "metric": "FY26 Revenue Guidance",
+      "company_guidance": "如有披露/$数据未披露",
+      "street_expectation": "如有/$数据未披露",
+      "delta_vs_street": ""
+    }
+  },
+
+  "results_summary": "差异来源拆解（必须量化）：需求端贡献约X%，价格/变现端贡献约X%，成本端贡献约X%，一次性因素贡献约X%",
+
   "drivers": {
     "demand": {
       "title": "A. 需求/量",
-      "metrics": "用户/使用量/订单量/出货量/广告展示等（选最相关2-3个）",
-      "change": "发生了什么变化：指标 + 方向 + 幅度",
-      "magnitude": "+XX% YoY",
-      "reason": "为什么：产品/算法/渠道/供给/组织层面的原因"
+      "primary_metrics": [
+        {
+          "metric_name": "指标名称",
+          "current_value": "本期值（含单位）",
+          "prior_year_value": "去年同期值",
+          "change": "+XX.X% YoY",
+          "change_calculation": "计算过程",
+          "source": "财报第X页/电话会/数据未披露"
+        }
+      ],
+      "change_description": "发生了什么变化（客观描述，带数据）",
+      "reason": "管理层归因/分析原因"
     },
     "monetization": {
       "title": "B. 变现/单价",
-      "metrics": "ARPU/价格/转化率/Take rate/毛利率/广告价格等",
-      "change": "发生了什么变化",
-      "magnitude": "+XX%",
-      "reason": "为什么"
+      "primary_metrics": [
+        {
+          "metric_name": "指标名称",
+          "current_value": "",
+          "prior_year_value": "",
+          "change": "",
+          "change_calculation": "",
+          "source": ""
+        }
+      ],
+      "change_description": "",
+      "reason": ""
     },
     "efficiency": {
-      "title": "C. 内部效率",
-      "metrics": "人效/算力效率/履约成本/研发效率/单位成本趋势",
-      "change": "发生了什么变化",
-      "magnitude": "+XX%",
-      "reason": "为什么"
+      "title": "C. 内部效率/成本",
+      "primary_metrics": [
+        {
+          "metric_name": "指标名称",
+          "current_value": "",
+          "prior_year_value": "",
+          "change": "",
+          "change_calculation": "",
+          "source": ""
+        }
+      ],
+      "change_description": "",
+      "reason": ""
     }
   },
-  "drivers_summary": "三大驱动的综合判断",
-  
+
+  "drivers_summary": "三大驱动的综合判断（必须引用具体数据）",
+
   "investment_roi": {
-    "capex_change": "本期CapEx变化及FY指引（如$XXbn → $XXbn，+XX%）",
-    "opex_change": "Opex增长主因拆解",
-    "investment_direction": "投入指向：算力？人才？渠道？供应链？并购？",
+    "capex": {
+      "this_quarter": "$XX.XB",
+      "prior_year_quarter": "$XX.XB",
+      "yoy_change": "+XX%",
+      "full_year_guidance": "$XX-XXB",
+      "vs_prior_guidance": "上调/下调/维持 $XB"
+    },
+    "opex_growth": {
+      "this_quarter": "$XX.XB",
+      "yoy_change": "+XX%",
+      "primary_drivers": "增长主因（人员/研发/营销）"
+    },
+    "investment_direction": "投入指向（算力/人才/渠道/并购）",
     "roi_evidence": [
-      "已体现的ROI证据1（必须量化）",
-      "已体现的ROI证据2",
-      "已体现的ROI证据3"
+      "ROI证据1：必须量化，如'AI推荐系统提升广告转化率X%'",
+      "ROI证据2：必须量化",
+      "ROI证据3：或填写'尚无量化证据披露'"
     ],
-    "management_commitment": "管理层底线框架/承诺（如OI绝对值、FCF、利润率区间；若没有，写明'缺口'）"
+    "management_commitment": "管理层承诺的财务底线（如OI绝对值、FCF目标、利润率区间）；如未承诺，填写'管理层未给出明确底线承诺'"
   },
-  
+
   "sustainability_risks": {
     "sustainable_drivers": [
-      "主要可持续驱动1",
-      "主要可持续驱动2",
-      "主要可持续驱动3"
+      "可持续驱动1（必须有数据支撑）",
+      "可持续驱动2",
+      "可持续驱动3"
     ],
     "main_risks": [
-      "主要风险1：类型 + 影响时间窗口",
-      "主要风险2",
-      "主要风险3"
-    ],
-    "checkpoints": [
-      "检查点1：时间 + 指标/事件",
-      "检查点2",
-      "检查点3"
+      {
+        "risk": "风险描述",
+        "type": "竞争/监管/宏观/执行/供应链",
+        "potential_impact": "可能影响的财务变量",
+        "time_window": "可能显现的时间窗口"
+      }
     ]
   },
-  
+
   "model_impact": {
     "upgrade_factors": [
-      "上调假设1：原因",
-      "上调假设2"
+      {
+        "factor": "上调因素",
+        "signal": "财报中的信号",
+        "impact": "对估值假设的影响"
+      }
     ],
     "downgrade_factors": [
-      "下调假设1：原因",
-      "下调假设2"
-    ],
-    "logic_chain": "变化的逻辑链：财报信号 → 假设变化 → 估值/目标价影响"
+      {
+        "factor": "下调因素",
+        "signal": "财报中的信号",
+        "impact": "对估值假设的影响"
+      }
+    ]
   },
-  
-  "final_judgment": {
-    "confidence": "我们更有信心的点（1-2句）",
-    "concerns": "我们更担心的点（1-2句）",
-    "watch_list": "我们接下来要盯什么",
-    "net_impact": "Strong Beat / Moderate Beat / Inline / Moderate Miss / Strong Miss",
-    "long_term_narrative": "本季度信息对长期叙事的净影响：更强/更弱/不变，以及原因",
-    "recommendation": "投资建议：超配/标配/低配，以及仓位操作建议"
-  },
-  
-  "investment_committee_summary": "【投委会结论】4-6句话收束：我们更有信心/更担心什么；我们接下来要盯什么；本季度信息对长期叙事的净影响（更强/更弱/不变）",
-  
+
   "comparison_snapshot": {
-    "core_revenue": "$XX.XB (+XX% YoY)",
-    "core_profit": "$XX.XB (+XX% YoY)",
-    "guidance": "Q1 Rev $XX-XXB / FY Rev $XXX-XXXB",
-    "beat_miss": "Strong Beat / Moderate Beat / Inline / Moderate Miss / Strong Miss",
-    "core_driver_quantified": "核心驱动量化：如 用户+15% + ARPU+8%",
-    "main_risk_quantified": "主要风险量化：如 CapEx+40%，ROI待验证",
-    "recommendation": "超配/标配/低配",
-    "position_action": "加仓X% / 持有 / 减仓X%",
-    "next_quarter_focus": "下季关注：1-2个关键指标或事件"
-  }
+    "revenue": {
+      "value": "$XX.XB",
+      "yoy": "+XX.X%",
+      "vs_consensus": "+X.X%"
+    },
+    "operating_income": {
+      "value": "$XX.XB",
+      "yoy": "+XX.X%",
+      "margin": "XX.X%"
+    },
+    "eps": {
+      "value": "$X.XX",
+      "yoy": "+XX.X%",
+      "vs_consensus": "+X.X%"
+    },
+    "guidance_vs_street": "+X.X%（下季指引 vs 预期）",
+    "overall_assessment": "Strong Beat/Moderate Beat/Inline/Moderate Miss/Strong Miss",
+    "assessment_basis": "Revenue Beat +X.X%, EPS Beat +X.X%, Guidance Beat +X.X%",
+    "core_driver_quantified": "核心驱动量化（如：DC收入+XX%至$XXB，占比XX%）",
+    "main_concern_quantified": "主要关注点量化（如：CapEx +XX%至$XXB，ROI待验证）"
+  },
+
+  "data_verification": {
+    "revenue_check": {
+      "extracted_value": "提取的收入值",
+      "document_location": "数据在文档中的位置",
+      "yoy_manual_check": "手工验算：(XX.X - XX.X) / XX.X = XX.X%"
+    },
+    "consistency_check": {
+      "results_table_revenue": "$XX.XB",
+      "comparison_snapshot_revenue": "$XX.XB",
+      "is_consistent": true/false
+    }
+  },
+
+  "data_gaps": [
+    "未能从输入文档中获取的数据项1",
+    "未能从输入文档中获取的数据项2"
+  ]
+}`
 }
 
-【关键规则】
-1. results_table 只保留"能改变判断"的数字，不要堆砌所有指标
-2. 每个驱动必须回答：发生了什么变化 + 为什么
-3. ROI证据必须量化，用已经体现的结果证明
-4. 风险必须给出时间窗口
-5. 检查点必须是可验证/可证伪的具体指标或事件
-6. 最终判断必须明确：更强/更弱/不变`
-}
 
+// ============================================================
 // 研报对比专用Prompt
+// ============================================================
+
 export const getResearchComparisonPrompt = () => {
   return `
-【研报对比分析补充输出】
-在主分析之外，请额外输出 research_comparison 字段：
+【研报对比分析 - 额外输出字段】
+
+当有研报输入时，必须额外输出以下字段：
 
 "research_comparison": {
-  "consensus_source": "研报来源机构（如Morgan Stanley、Goldman Sachs等）",
-  "expectations_extracted": [
-    {"metric": "Revenue", "expected": "$XX.Xbn", "actual": "$XX.Xbn", "delta": "+X.X%"},
-    {"metric": "EPS", "expected": "$X.XX", "actual": "$X.XX", "delta": "+X.X%"}
+  "consensus_source": "研报来源机构",
+  "report_date": "研报日期",
+  "expectations_vs_actual": [
+    {
+      "metric": "Revenue",
+      "analyst_expectation": "$XX.XB",
+      "actual": "$XX.XB",
+      "delta": "+X.X%",
+      "delta_calculation": "(实际-预期)/预期 = X.X%"
+    },
+    {
+      "metric": "EPS",
+      "analyst_expectation": "$X.XX",
+      "actual": "$X.XX",
+      "delta": "+X.X%",
+      "delta_calculation": "计算过程"
+    },
+    {
+      "metric": "Gross Margin",
+      "analyst_expectation": "XX.X%",
+      "actual": "XX.X%",
+      "delta": "+X.Xpp",
+      "delta_calculation": ""
+    }
   ],
-  "beat_items": ["超预期项1：实际 vs 预期，差异原因", "超预期项2"],
-  "miss_items": ["不及预期项1：实际 vs 预期，差异原因", "不及预期项2"],
-  "analyst_blind_spots": "分析师可能忽略或低估的点",
-  "key_differences_summary": "财报实际 vs 研报预期的核心差异总结"
+  "beat_items": [
+    "超预期项1：{指标}实际${值} vs 预期${值}，Beat +X.X%，原因：{原因}"
+  ],
+  "miss_items": [
+    "不及预期项1：{指标}实际${值} vs 预期${值}，Miss -X.X%，原因：{原因}"
+  ],
+  "analyst_assumptions_vs_reality": "分析师的关键假设 vs 实际情况的差异",
+  "potential_blind_spots": "分析师可能忽略或低估的点"
 }`
 }
 
+
+// ============================================================
 // 横向对比提取Prompt
+// ============================================================
+
 export const getComparisonExtractionPrompt = () => {
   return `
-从分析结果中提取以下关键投资结论字段，用于横向对比：
+从分析结果中提取以下关键字段，用于多公司横向对比：
 
 {
-  "supply_demand_judgment": "供需判断：一句话总结供需格局变化",
-  "pricing_power": "定价权：增强/稳定/削弱",
-  "core_driver": "核心驱动：最重要的1-2个增长驱动",
-  "main_risk": "主要风险：最需要关注的1-2个风险",
-  "recommendation": "投资建议：超配/标配/低配",
-  "position_action": "仓位操作：加仓/持有/减仓",
-  "confidence_level": "信心水平：高/中/低",
-  "next_quarter_focus": "下季关注：最重要的1-2个检查点"
+  "company_symbol": "股票代码",
+  "quarter": "Q4 FY25",
+  "revenue": {
+    "value": "$XX.XB",
+    "yoy": "+XX.X%",
+    "beat_miss": "+X.X%"
+  },
+  "eps": {
+    "value": "$X.XX",
+    "yoy": "+XX.X%",
+    "beat_miss": "+X.X%"
+  },
+  "operating_margin": "XX.X%",
+  "guidance_vs_street": "+X.X%",
+  "overall_assessment": "Strong Beat/Moderate Beat/Inline/Moderate Miss/Strong Miss",
+  "core_driver": "核心驱动（一句话）",
+  "main_risk": "主要风险（一句话）",
+  "data_confidence": "数据置信度：High/Medium/Low（基于输入文档完整度）"
 }`
 }
 
 
+// ============================================================
 // 公司分类配置
+// ============================================================
+
 export const COMPANY_CATEGORIES = {
   AI_APPLICATION: {
     name: 'AI应用公司',
@@ -239,6 +510,11 @@ export const COMPANY_CATEGORIES = {
 - 竞争格局变化（AMD/Intel/自研芯片）`,
   },
 }
+
+
+// ============================================================
+// 公司列表
+// ============================================================
 
 // AI应用公司列表
 const AI_APPLICATION_COMPANIES = [
@@ -271,7 +547,11 @@ const AI_SUPPLY_CHAIN_COMPANIES = [
   { symbol: 'ARM', name: 'Arm Holdings', nameZh: 'ARM' },
 ]
 
-// 根据公司代码或名称获取分类
+
+// ============================================================
+// 公司分类查询函数
+// ============================================================
+
 export function getCompanyCategory(symbolOrName: string): {
   category: 'AI_APPLICATION' | 'AI_SUPPLY_CHAIN' | 'UNKNOWN'
   categoryName: string
@@ -322,24 +602,49 @@ export function getCompanyCategory(symbolOrName: string): {
   }
 }
 
+
+// ============================================================
 // 兼容旧版本的导出
+// ============================================================
+
 export const AI_APPLICATION_PROMPT = COMPANY_CATEGORIES.AI_APPLICATION.prompt
 export const AI_SUPPLY_CHAIN_PROMPT = COMPANY_CATEGORIES.AI_SUPPLY_CHAIN.prompt
 
 // 横向对比Prompt (兼容旧API)
 export const COMPARISON_PROMPT = `你是一名专业的财务分析师。请对比分析以下多家公司的财报数据，从投资角度给出横向对比结论。
 
+【对比规则】
+1. 使用完全相同的指标口径进行对比（GAAP vs GAAP，或Non-GAAP vs Non-GAAP）
+2. 使用相同的计算方法（YoY%统一用(本期-去年)/去年）
+3. 使用相同的Beat/Miss分级标准
+
 输出格式要求：
 {
+  "comparison_basis": "对比口径说明（Non-GAAP/GAAP）",
+  "comparison_period": "对比季度",
   "comparison_summary": "整体对比总结",
-  "ranking": [
-    {"company": "公司名", "score": 85, "recommendation": "超配/标配/低配", "key_strength": "核心优势", "key_risk": "主要风险"}
+  "ranking_by_revenue_growth": [
+    {"rank": 1, "company": "公司名", "revenue_yoy": "+XX.X%"}
+  ],
+  "ranking_by_beat_magnitude": [
+    {"rank": 1, "company": "公司名", "beat_pct": "+X.X%", "assessment": "Strong Beat"}
   ],
   "sector_outlook": "行业整体展望"
 }`
 
 // 自定义问题评估Prompt (兼容旧API)
-export const EVALUATION_SYSTEM_PROMPT = `你是一名专业的财务分析师。请根据用户的问题，从财报中提取相关信息并给出专业分析。`
+export const EVALUATION_SYSTEM_PROMPT = `你是一名专业的财务分析师。请根据用户的问题，从财报中提取相关信息并给出专业分析。
+
+【数据准确性要求】
+1. 所有数值必须从输入文档中直接提取
+2. 禁止推测或编造数据
+3. 如数据未披露，明确说明"数据未披露"
+4. 计算结果需展示计算过程`
 
 // 自定义提取Prompt (兼容旧API)
-export const CUSTOM_EXTRACTION_PROMPT = `请从财报中提取用户关心的信息，并以结构化JSON格式输出。`
+export const CUSTOM_EXTRACTION_PROMPT = `请从财报中提取用户关心的信息，并以结构化JSON格式输出。
+
+【提取规则】
+1. 只提取文档中明确存在的数据
+2. 对于计算得出的数据，展示计算过程
+3. 对于未披露的数据，填写"数据未披露"而非留空或猜测`
