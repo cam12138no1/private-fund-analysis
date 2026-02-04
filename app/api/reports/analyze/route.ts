@@ -47,7 +47,7 @@ export async function POST(request: NextRequest) {
     const sessionResult = await validateSession(request, '分析API')
     if (!sessionResult.valid) {
       return NextResponse.json(
-        { error: sessionResult.error },
+        { error: sessionResult.error, code: sessionResult.code },
         { status: sessionResult.status }
       )
     }

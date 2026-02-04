@@ -21,10 +21,21 @@ export interface ValidatedSession {
  * 2. 生成唯一的sessionId用于日志追踪
  * 3. 记录详细的验证日志
  */
+export interface SessionValidationError {
+  valid: false
+  error: string
+  status: number
+  code: 'NOT_LOGGED_IN' | 'SESSION_INVALID' | 'SESSION_EXPIRED' | 'USER_ID_MISSING' | 'AUTH_ERROR'
+}
+
+export type SessionValidationResult = 
+  | { valid: true; session: ValidatedSession }
+  | SessionValidationError
+
 export async function validateSession(
   request: NextRequest,
   apiName: string
-): Promise<{ valid: true; session: ValidatedSession } | { valid: false; error: string; status: number }> {
+): Promise<SessionValidationResult> {
   const requestId = `${Date.now()}_${Math.random().toString(36).substr(2, 6)}`
   
   console.log(`[${apiName}] [${requestId}] ========== Session验证开始 ==========`)
@@ -45,17 +56,17 @@ export async function validateSession(
     // 验证Session
     if (!session) {
       console.error(`[${apiName}] [${requestId}] ❌ Session不存在`)
-      return { valid: false, error: '未登录，请先登录', status: 401 }
+      return { valid: false, error: '未登录，请先登录', status: 401, code: 'NOT_LOGGED_IN' }
     }
     
     if (!session.user) {
       console.error(`[${apiName}] [${requestId}] ❌ Session.user不存在`)
-      return { valid: false, error: '会话无效，请重新登录', status: 401 }
+      return { valid: false, error: '会话无效，请重新登录', status: 401, code: 'SESSION_INVALID' }
     }
     
     if (!session.user.id) {
       console.error(`[${apiName}] [${requestId}] ❌ Session.user.id不存在`)
-      return { valid: false, error: '用户ID无效，请重新登录', status: 401 }
+      return { valid: false, error: '用户ID无效，请重新登录', status: 401, code: 'USER_ID_MISSING' }
     }
     
     // 验证Session是否过期
@@ -64,7 +75,7 @@ export async function validateSession(
       const now = Date.now()
       if (expiresAt < now) {
         console.error(`[${apiName}] [${requestId}] ❌ Session已过期: ${session.expires}`)
-        return { valid: false, error: '会话已过期，请重新登录', status: 401 }
+        return { valid: false, error: '登录已过期，请重新登录', status: 401, code: 'SESSION_EXPIRED' }
       }
     }
     
@@ -92,7 +103,7 @@ export async function validateSession(
   } catch (error: any) {
     console.error(`[${apiName}] [${requestId}] ❌ Session验证异常:`, error.message)
     console.error(`[${apiName}] [${requestId}] 错误堆栈:`, error.stack)
-    return { valid: false, error: '认证服务异常，请稍后重试', status: 500 }
+    return { valid: false, error: '认证服务异常，请稍后重试', status: 500, code: 'AUTH_ERROR' }
   }
 }
 

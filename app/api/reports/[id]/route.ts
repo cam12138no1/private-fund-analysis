@@ -14,7 +14,7 @@ export async function DELETE(
     const sessionResult = await validateSession(request, 'Reports DELETE')
     if (!sessionResult.valid) {
       return NextResponse.json(
-        { error: sessionResult.error },
+        { error: sessionResult.error, code: sessionResult.code },
         { status: sessionResult.status }
       )
     }
@@ -55,7 +55,7 @@ export async function GET(
     const sessionResult = await validateSession(request, 'Reports GET')
     if (!sessionResult.valid) {
       return NextResponse.json(
-        { error: sessionResult.error },
+        { error: sessionResult.error, code: sessionResult.code },
         { status: sessionResult.status }
       )
     }

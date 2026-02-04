@@ -11,7 +11,7 @@ export async function GET(request: NextRequest) {
     const sessionResult = await validateSession(request, 'Dashboard API')
     if (!sessionResult.valid) {
       return NextResponse.json(
-        { error: sessionResult.error },
+        { error: sessionResult.error, code: sessionResult.code },
         { status: sessionResult.status }
       )
     }

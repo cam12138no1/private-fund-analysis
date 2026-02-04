@@ -5,6 +5,7 @@ import { X, Upload, Loader2, FileText, CheckCircle2, AlertCircle, Trash2, Buildi
 import { Button } from '@/components/ui/button'
 import { toast } from '@/components/ui/toaster'
 import { upload } from '@vercel/blob/client'
+import { signOut } from 'next-auth/react'
 
 interface UploadModalProps {
   isOpen: boolean
@@ -198,12 +199,71 @@ export default function UploadModal({ isOpen, onClose, onSuccess }: UploadModalP
     throw new Error(lastError?.message || '文件上传失败，请稍后重试')
   }
 
+  // ★★★ 验证Session是否有效 ★★★
+  const validateSession = async (): Promise<boolean> => {
+    try {
+      const response = await fetch('/api/auth/session')
+      if (!response.ok) {
+        return false
+      }
+      const data = await response.json()
+      
+      // 检查Session是否存在且有用户信息
+      if (!data || !data.user || !data.user.id) {
+        return false
+      }
+      
+      // 检查是否过期
+      if (data.expires) {
+        const expiresAt = new Date(data.expires).getTime()
+        if (expiresAt < Date.now()) {
+          return false
+        }
+      }
+      
+      return true
+    } catch (error) {
+      console.error('[前端] Session验证失败:', error)
+      return false
+    }
+  }
+
+  // ★★★ 处理Session过期 ★★★
+  const handleSessionExpired = () => {
+    toast({
+      title: '登录已过期',
+      description: '您的登录状态已过期，请重新登录后再上传',
+      variant: 'destructive',
+    })
+    
+    // 重置状态
+    setAnalysisStatus('idle')
+    setErrorMessage('')
+    setUploadProgress('')
+    isSubmittingRef.current = false
+    
+    // 延迟后跳转到登录页
+    setTimeout(() => {
+      signOut({ callbackUrl: '/auth/signin?expired=true' })
+    }, 2000)
+  }
+
   const handleSubmit = async () => {
     // ★★★ 严格的防重复提交检查 ★★★
     if (isSubmittingRef.current) {
       console.log('[前端] ⚠️ 阻止重复提交：isSubmittingRef.current = true')
       return
     }
+
+    // ★★★ 在开始上传前验证Session ★★★
+    console.log('[前端] 验证Session状态...')
+    const isSessionValid = await validateSession()
+    if (!isSessionValid) {
+      console.error('[前端] Session无效或已过期')
+      handleSessionExpired()
+      return
+    }
+    console.log('[前端] Session验证通过')
 
     if (financialFiles.length === 0) {
       toast({
@@ -335,6 +395,21 @@ export default function UploadModal({ isOpen, onClose, onSuccess }: UploadModalP
       }
       
       console.error('[前端] ✗ 提交失败:', error.message)
+      
+      // ★★★ 检查是否是Session过期错误 ★★★
+      const isSessionError = 
+        error.message?.includes('登录已过期') ||
+        error.message?.includes('未登录') ||
+        error.message?.includes('会话无效') ||
+        error.message?.includes('会话已过期') ||
+        error.message?.includes('请重新登录') ||
+        error.message?.includes('Unauthorized') ||
+        error.message?.includes('未授权')
+      
+      if (isSessionError) {
+        handleSessionExpired()
+        return
+      }
       
       setAnalysisStatus('error')
       setErrorMessage(error.message || '分析失败')

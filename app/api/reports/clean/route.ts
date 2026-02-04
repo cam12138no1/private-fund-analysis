@@ -11,7 +11,7 @@ export async function POST(request: NextRequest) {
     const sessionResult = await validateSession(request, 'Clean API POST')
     if (!sessionResult.valid) {
       return NextResponse.json(
-        { error: sessionResult.error },
+        { error: sessionResult.error, code: sessionResult.code },
         { status: sessionResult.status }
       )
     }
@@ -56,7 +56,7 @@ export async function DELETE(request: NextRequest) {
     const sessionResult = await validateSession(request, 'Clean API DELETE')
     if (!sessionResult.valid) {
       return NextResponse.json(
-        { error: sessionResult.error },
+        { error: sessionResult.error, code: sessionResult.code },
         { status: sessionResult.status }
       )
     }
@@ -90,7 +90,7 @@ export async function GET(request: NextRequest) {
     const sessionResult = await validateSession(request, 'Clean API GET')
     if (!sessionResult.valid) {
       return NextResponse.json(
-        { error: sessionResult.error },
+        { error: sessionResult.error, code: sessionResult.code },
         { status: sessionResult.status }
       )
     }
