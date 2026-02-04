@@ -122,8 +122,20 @@ export class OpenRouterClient {
       
       // Validate response structure
       if (!data.choices || !data.choices[0] || !data.choices[0].message) {
-        console.error(`[OpenRouter] 响应结构无效:`, JSON.stringify(data).substring(0, 500))
-        throw new Error('AI服务返回了无效的响应格式')
+        console.error(`[OpenRouter] 响应结构无效，完整响应:`, JSON.stringify(data, null, 2))
+        
+        // Check for specific error patterns in the response
+        if (data.error) {
+          const errorMsg = data.error.message || data.error.code || JSON.stringify(data.error)
+          throw new Error(`AI服务错误: ${errorMsg}`)
+        }
+        
+        // Check if it's a rate limit or quota issue
+        if (data.message?.includes('rate') || data.message?.includes('quota')) {
+          throw new Error(`AI服务限制: ${data.message}`)
+        }
+        
+        throw new Error(`AI服务返回了无效的响应格式: ${JSON.stringify(data).substring(0, 200)}`)
       }
 
       // Check for finish reason
