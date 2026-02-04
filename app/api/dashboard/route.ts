@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
+import { validateSession } from '@/lib/session-validator'
 import { analysisStore } from '@/lib/store'
 import { checkRateLimit, createRateLimitHeaders } from '@/lib/ratelimit'
 
@@ -8,12 +7,17 @@ export const dynamic = 'force-dynamic'
 
 export async function GET(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions)
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    // ★★★ 使用增强的Session验证 ★★★
+    const sessionResult = await validateSession(request, 'Dashboard API')
+    if (!sessionResult.valid) {
+      return NextResponse.json(
+        { error: sessionResult.error },
+        { status: sessionResult.status }
+      )
     }
 
-    const userId = session.user.id
+    const userId = sessionResult.session.userId
+    const sessionId = sessionResult.session.sessionId
 
     // 速率限制检查
     const rateLimit = await checkRateLimit(userId, 'dashboard')
@@ -30,18 +34,32 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url)
     const limit = parseInt(searchParams.get('limit') || '50')
 
-    // ★ 使用用户隔离的方法获取数据
+    // ★★★ 使用用户隔离的方法获取数据 ★★★
+    console.log(`[Dashboard API] [${sessionId}] 获取用户 ${userId} 的数据`)
     const allAnalyses = await analysisStore.getAll(userId)
     const analyses = allAnalyses.slice(0, limit)
     
     // 计算统计信息
     const stats = await analysisStore.getUserStats(userId)
 
-    console.log(`[Dashboard API] User ${userId}: ${analyses.length} analyses, ${stats.processing} processing`)
+    console.log(`[Dashboard API] [${sessionId}] 用户 ${userId}: ${analyses.length} 条记录, ${stats.processing} 处理中`)
+
+    // ★★★ 验证返回的数据确实属于当前用户 ★★★
+    const validatedAnalyses = analyses.filter(a => {
+      if (a.user_id && a.user_id !== userId) {
+        console.error(`[Dashboard API] [${sessionId}] ❌ 数据泄露风险！记录 ${a.id} 属于用户 ${a.user_id}，但当前用户是 ${userId}`)
+        return false
+      }
+      return true
+    })
+
+    if (validatedAnalyses.length !== analyses.length) {
+      console.error(`[Dashboard API] [${sessionId}] ⚠️ 过滤了 ${analyses.length - validatedAnalyses.length} 条不属于当前用户的记录`)
+    }
 
     return NextResponse.json({ 
-      analyses,
-      recentAnalyses: analyses,
+      analyses: validatedAnalyses,
+      recentAnalyses: validatedAnalyses,
       processingCount: stats.processing,
       totalCount: stats.total,
       completedCount: stats.completed,

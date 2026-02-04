@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
+import { validateSession } from '@/lib/session-validator'
 import { extractTextFromDocument } from '@/lib/document-parser'
 import { analyzeFinancialReport } from '@/lib/ai/analyzer'
 import { extractMetadataFromReport } from '@/lib/ai/extractor'
@@ -29,35 +28,42 @@ interface AnalyzeRequest {
 /**
  * 分析API - 从 Vercel Blob URL 读取文件并进行分析
  * 
- * ★ 新增功能：
- * - 用户隔离：每个用户只能访问自己的数据
- * - 速率限制：防止滥用
- * - 重试机制：网络请求更健壮
+ * ★★★ 增强的用户隔离 ★★★
+ * - 使用增强的Session验证
+ * - 每次请求都重新验证用户身份
+ * - 详细的日志记录用于调试
  */
 export async function POST(request: NextRequest) {
   const startTime = Date.now()
   let processingId: string | null = null
-  let requestId: string | null = null
   let userId: string | null = null
+  let sessionId: string | null = null
   
   try {
     console.log('========================================')
-    console.log('[分析] 收到新请求', new Date().toISOString())
+    console.log('[分析API] 收到新请求', new Date().toISOString())
     
-    // ★ 1. 认证检查
-    const session = await getServerSession(authOptions)
-    if (!session?.user?.id) {
-      console.log('[分析] 未授权访问')
-      return NextResponse.json({ error: '未授权访问' }, { status: 401 })
+    // ★★★ 1. 增强的Session验证 ★★★
+    const sessionResult = await validateSession(request, '分析API')
+    if (!sessionResult.valid) {
+      return NextResponse.json(
+        { error: sessionResult.error },
+        { status: sessionResult.status }
+      )
     }
     
-    userId = session.user.id
-    console.log('[分析] 用户已认证:', session.user?.email, 'ID:', userId)
+    userId = sessionResult.session.userId
+    sessionId = sessionResult.session.sessionId
+    
+    console.log(`[分析API] [${sessionId}] 用户已认证:`, {
+      userId,
+      email: sessionResult.session.userEmail,
+    })
 
-    // ★ 2. 速率限制检查
+    // ★★★ 2. 速率限制检查 ★★★
     const rateLimit = await checkRateLimit(userId, 'analysis')
     if (!rateLimit.success) {
-      console.warn(`[分析] 用户 ${userId} 超出速率限制`)
+      console.warn(`[分析API] [${sessionId}] 用户 ${userId} 超出速率限制`)
       return NextResponse.json(
         { error: '请求过于频繁，请稍后再试' },
         { 
@@ -71,16 +77,16 @@ export async function POST(request: NextRequest) {
     const body: AnalyzeRequest = await request.json()
     
     const { financialFiles, researchFiles, category, fiscalYear, fiscalQuarter } = body
-    requestId = body.requestId
+    const requestId = body.requestId
     
-    console.log('[分析] 请求参数:')
-    console.log('  - userId:', userId)
-    console.log('  - requestId:', requestId)
-    console.log('  - category:', category)
-    console.log('  - fiscalYear:', fiscalYear)
-    console.log('  - fiscalQuarter:', fiscalQuarter)
-    console.log('  - 财报文件数:', financialFiles.length)
-    console.log('  - 研报文件数:', researchFiles.length)
+    console.log(`[分析API] [${sessionId}] 请求参数:`)
+    console.log(`  - userId: ${userId}`)
+    console.log(`  - requestId: ${requestId}`)
+    console.log(`  - category: ${category}`)
+    console.log(`  - fiscalYear: ${fiscalYear}`)
+    console.log(`  - fiscalQuarter: ${fiscalQuarter}`)
+    console.log(`  - 财报文件数: ${financialFiles.length}`)
+    console.log(`  - 研报文件数: ${researchFiles.length}`)
 
     if (!requestId) {
       return NextResponse.json({ error: '缺少requestId' }, { status: 400 })
@@ -90,12 +96,31 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: '请上传财报文件' }, { status: 400 })
     }
 
-    // ★ 3. 检查是否已存在此requestId的记录（传入userId）
+    // ★★★ 3. 再次验证Session（防止并发请求时Session变化） ★★★
+    const revalidateResult = await validateSession(request, '分析API-重验证')
+    if (!revalidateResult.valid) {
+      console.error(`[分析API] [${sessionId}] ❌ Session重验证失败`)
+      return NextResponse.json(
+        { error: revalidateResult.error },
+        { status: revalidateResult.status }
+      )
+    }
+    
+    // 确保userId没有变化
+    if (revalidateResult.session.userId !== userId) {
+      console.error(`[分析API] [${sessionId}] ❌ Session用户ID变化！原: ${userId}, 新: ${revalidateResult.session.userId}`)
+      return NextResponse.json(
+        { error: '会话状态异常，请刷新页面重新登录' },
+        { status: 401 }
+      )
+    }
+
+    // ★★★ 4. 检查是否已存在此requestId的记录 ★★★
     const existingByRequestId = await analysisStore.getByRequestId(userId, requestId)
     if (existingByRequestId) {
-      console.log('[分析] 发现已存在的记录:', existingByRequestId.id)
+      console.log(`[分析API] [${sessionId}] 发现已存在的记录:`, existingByRequestId.id)
       if (!existingByRequestId.processing && existingByRequestId.one_line_conclusion) {
-        console.log('[分析] 返回已完成的分析结果')
+        console.log(`[分析API] [${sessionId}] 返回已完成的分析结果`)
         return NextResponse.json({
           success: true,
           analysis_id: existingByRequestId.id,
@@ -114,44 +139,44 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // ★ 4. 从 Blob URL 下载文件内容（使用重试机制）
-    console.log('[分析] 开始从Blob下载文件...')
+    // ★★★ 5. 从 Blob URL 下载文件内容 ★★★
+    console.log(`[分析API] [${sessionId}] 开始从Blob下载文件...`)
     
     // 下载财报文件
     const financialBuffers: { buffer: Buffer; name: string }[] = []
     for (const file of financialFiles) {
-      console.log(`[分析] 下载财报: ${file.originalName}`)
+      console.log(`[分析API] [${sessionId}] 下载财报: ${file.originalName}`)
       const response = await fetchWithRetry(file.url, { maxRetries: 3 })
       const arrayBuffer = await response.arrayBuffer()
       financialBuffers.push({
         buffer: Buffer.from(arrayBuffer),
         name: file.originalName,
       })
-      console.log(`[分析] 下载完成: ${file.originalName} (${(arrayBuffer.byteLength / 1024 / 1024).toFixed(2)}MB)`)
+      console.log(`[分析API] [${sessionId}] 下载完成: ${file.originalName} (${(arrayBuffer.byteLength / 1024 / 1024).toFixed(2)}MB)`)
     }
     
     // 下载研报文件
     const researchBuffers: { buffer: Buffer; name: string }[] = []
     for (const file of researchFiles) {
-      console.log(`[分析] 下载研报: ${file.originalName}`)
+      console.log(`[分析API] [${sessionId}] 下载研报: ${file.originalName}`)
       const response = await fetchWithRetry(file.url, { maxRetries: 3 })
       const arrayBuffer = await response.arrayBuffer()
       researchBuffers.push({
         buffer: Buffer.from(arrayBuffer),
         name: file.originalName,
       })
-      console.log(`[分析] 下载完成: ${file.originalName} (${(arrayBuffer.byteLength / 1024 / 1024).toFixed(2)}MB)`)
+      console.log(`[分析API] [${sessionId}] 下载完成: ${file.originalName} (${(arrayBuffer.byteLength / 1024 / 1024).toFixed(2)}MB)`)
     }
 
-    // ★ 5. 提取文本
-    console.log('[分析] 开始提取文本...')
+    // ★★★ 6. 提取文本 ★★★
+    console.log(`[分析API] [${sessionId}] 开始提取文本...`)
     
     let financialText = ''
     for (const { buffer, name } of financialBuffers) {
       const text = await extractTextFromDocument(buffer, name)
       financialText += text + '\n\n'
     }
-    console.log(`[分析] 财报文本提取完成: ${financialText.length} 字符`)
+    console.log(`[分析API] [${sessionId}] 财报文本提取完成: ${financialText.length} 字符`)
     
     let researchText = ''
     for (const { buffer, name } of researchBuffers) {
@@ -159,23 +184,35 @@ export async function POST(request: NextRequest) {
       researchText += text + '\n\n'
     }
     if (researchText) {
-      console.log(`[分析] 研报文本提取完成: ${researchText.length} 字符`)
+      console.log(`[分析API] [${sessionId}] 研报文本提取完成: ${researchText.length} 字符`)
     }
 
-    // ★ 6. 提取元数据
-    console.log('[分析] 开始提取元数据...')
+    // ★★★ 7. 提取元数据 ★★★
+    console.log(`[分析API] [${sessionId}] 开始提取元数据...`)
     const metadata = await extractMetadataFromReport(financialText)
-    console.log('[分析] 元数据:', JSON.stringify(metadata, null, 2))
+    console.log(`[分析API] [${sessionId}] 元数据:`, JSON.stringify(metadata, null, 2))
 
     // 使用用户选择的年份和季度
     const finalFiscalYear = fiscalYear || metadata.fiscal_year || new Date().getFullYear()
     const finalFiscalQuarter = fiscalQuarter || metadata.fiscal_quarter || 4
     const period = `${finalFiscalYear} Q${finalFiscalQuarter}`
 
-    // ★ 7. 再次检查是否已存在（防止并发）
+    // ★★★ 8. 第三次验证Session（在创建记录前） ★★★
+    const finalValidation = await validateSession(request, '分析API-最终验证')
+    if (!finalValidation.valid || finalValidation.session.userId !== userId) {
+      console.error(`[分析API] [${sessionId}] ❌ 最终Session验证失败或userId变化`)
+      return NextResponse.json(
+        { error: '会话状态异常，请刷新页面重新登录' },
+        { status: 401 }
+      )
+    }
+    
+    console.log(`[分析API] [${sessionId}] ✓ 最终Session验证通过，userId确认: ${userId}`)
+
+    // ★★★ 9. 再次检查是否已存在（防止并发） ★★★
     const doubleCheck = await analysisStore.getByRequestId(userId, requestId)
     if (doubleCheck) {
-      console.log('[分析] 二次检查发现已存在记录:', doubleCheck.id)
+      console.log(`[分析API] [${sessionId}] 二次检查发现已存在记录:`, doubleCheck.id)
       if (!doubleCheck.processing && doubleCheck.one_line_conclusion) {
         return NextResponse.json({
           success: true,
@@ -195,8 +232,8 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // ★ 8. 创建处理记录（传入userId）
-    console.log('[分析] 创建处理记录...')
+    // ★★★ 10. 创建处理记录（使用验证过的userId） ★★★
+    console.log(`[分析API] [${sessionId}] 创建处理记录，userId: ${userId}`)
     const processingEntry = await analysisStore.addWithRequestId(userId, requestId, {
       company_name: metadata.company_name,
       company_symbol: metadata.company_symbol,
@@ -211,10 +248,10 @@ export async function POST(request: NextRequest) {
       processing: true,
     })
     processingId = processingEntry.id
-    console.log('[分析] 处理记录已创建:', processingId)
+    console.log(`[分析API] [${sessionId}] 处理记录已创建: ${processingId}，user_id: ${userId}`)
 
-    // ★ 9. AI分析
-    console.log('[分析] 开始AI分析...')
+    // ★★★ 11. AI分析 ★★★
+    console.log(`[分析API] [${sessionId}] 开始AI分析...`)
     const analysisResult = await analyzeFinancialReport(
       financialText,
       {
@@ -227,20 +264,20 @@ export async function POST(request: NextRequest) {
       },
       researchText || undefined
     )
-    console.log('[分析] AI分析完成')
+    console.log(`[分析API] [${sessionId}] AI分析完成`)
 
-    // ★ 10. 更新记录（传入userId）
-    console.log('[分析] 更新记录...')
+    // ★★★ 12. 更新记录（使用验证过的userId） ★★★
+    console.log(`[分析API] [${sessionId}] 更新记录，userId: ${userId}`)
     await analysisStore.update(userId, processingId, {
       processed: true,
       processing: false,
       error: undefined,
       ...analysisResult,
     })
-    console.log('[分析] 记录更新完成')
+    console.log(`[分析API] [${sessionId}] 记录更新完成`)
 
     const duration = Date.now() - startTime
-    console.log(`[分析] ✓ 完成，用户: ${userId}，耗时: ${duration}ms`)
+    console.log(`[分析API] [${sessionId}] ✓ 完成，用户: ${userId}，耗时: ${duration}ms`)
     console.log('========================================')
 
     return NextResponse.json({
@@ -255,8 +292,8 @@ export async function POST(request: NextRequest) {
     })
 
   } catch (error: any) {
-    console.error('[分析] ✗ 错误:', error.message)
-    console.error('[分析] 错误堆栈:', error.stack)
+    console.error(`[分析API] [${sessionId || 'unknown'}] ✗ 错误:`, error.message)
+    console.error(`[分析API] [${sessionId || 'unknown'}] 错误堆栈:`, error.stack)
     
     // 更新记录为失败状态
     if (processingId && userId) {
@@ -265,9 +302,9 @@ export async function POST(request: NextRequest) {
           processing: false,
           error: error.message,
         })
-        console.log('[分析] 已更新记录为失败状态')
+        console.log(`[分析API] [${sessionId || 'unknown'}] 已更新记录为失败状态`)
       } catch (updateError) {
-        console.error('[分析] 更新失败状态时出错:', updateError)
+        console.error(`[分析API] [${sessionId || 'unknown'}] 更新失败状态时出错:`, updateError)
       }
     }
     

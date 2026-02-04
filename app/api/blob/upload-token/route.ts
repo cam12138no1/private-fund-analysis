@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
+import { validateSession } from '@/lib/session-validator'
 import { handleUpload, type HandleUploadBody } from '@vercel/blob/client'
 
 export const runtime = 'nodejs'
@@ -8,9 +7,8 @@ export const runtime = 'nodejs'
 /**
  * Vercel Blob 客户端上传 Token API
  * 
- * 这个API为前端提供上传token，允许前端直接上传文件到Vercel Blob
- * 绕过了Vercel Serverless Functions的4.5MB请求体限制
- * 支持最大500MB的文件上传
+ * ★★★ 增强的Session验证 ★★★
+ * 使用统一的Session验证机制，确保用户身份正确
  */
 export async function POST(request: NextRequest) {
   console.log('[Blob Upload Token] ========== 开始处理请求 ==========')
@@ -25,63 +23,56 @@ export async function POST(request: NextRequest) {
         { status: 500 }
       )
     }
-    console.log('[Blob Upload Token] ✓ BLOB_READ_WRITE_TOKEN 已配置，长度:', blobToken.length)
+    console.log('[Blob Upload Token] ✓ BLOB_READ_WRITE_TOKEN 已配置')
 
-    // 验证用户登录状态
-    let session
-    try {
-      session = await getServerSession(authOptions)
-      console.log('[Blob Upload Token] Session结果:', session ? '已登录' : '未登录')
-      if (session?.user) {
-        console.log('[Blob Upload Token] 用户ID:', session.user.id)
-        console.log('[Blob Upload Token] 用户邮箱:', session.user.email)
-      }
-    } catch (sessionError: any) {
-      console.error('[Blob Upload Token] ❌ 获取Session失败:', sessionError.message)
+    // ★★★ 使用增强的Session验证 ★★★
+    const sessionResult = await validateSession(request, 'Blob Upload Token')
+    if (!sessionResult.valid) {
       return NextResponse.json(
-        { error: '认证服务异常，请稍后重试' },
-        { status: 500 }
+        { error: sessionResult.error },
+        { status: sessionResult.status }
       )
     }
 
-    if (!session?.user?.id) {
-      console.error('[Blob Upload Token] ❌ 未授权访问 - session:', JSON.stringify(session))
-      return NextResponse.json({ error: '未授权访问，请重新登录' }, { status: 401 })
-    }
+    const userId = sessionResult.session.userId
+    const userEmail = sessionResult.session.userEmail
+    const sessionId = sessionResult.session.sessionId
+
+    console.log(`[Blob Upload Token] [${sessionId}] 用户验证通过: ${userEmail} (ID: ${userId})`)
 
     // 解析请求体
     let body: HandleUploadBody
     try {
       const rawBody = await request.text()
-      console.log('[Blob Upload Token] 原始请求体长度:', rawBody.length)
+      console.log(`[Blob Upload Token] [${sessionId}] 原始请求体长度:`, rawBody.length)
       body = JSON.parse(rawBody)
-      console.log('[Blob Upload Token] 请求类型:', body.type)
+      console.log(`[Blob Upload Token] [${sessionId}] 请求类型:`, body.type)
       if (body.type === 'blob.generate-client-token') {
-        console.log('[Blob Upload Token] pathname:', (body.payload as any)?.pathname)
+        console.log(`[Blob Upload Token] [${sessionId}] pathname:`, (body.payload as any)?.pathname)
       }
     } catch (parseError: any) {
-      console.error('[Blob Upload Token] ❌ 请求体解析失败:', parseError.message)
+      console.error(`[Blob Upload Token] [${sessionId}] ❌ 请求体解析失败:`, parseError.message)
       return NextResponse.json({ error: '请求体解析失败' }, { status: 400 })
     }
 
     // 使用 handleUpload 处理上传请求
-    console.log('[Blob Upload Token] 调用 handleUpload...')
+    console.log(`[Blob Upload Token] [${sessionId}] 调用 handleUpload...`)
     const jsonResponse = await handleUpload({
       body,
       request,
       onBeforeGenerateToken: async (pathname) => {
-        console.log('[Blob Upload Token] onBeforeGenerateToken - pathname:', pathname)
+        console.log(`[Blob Upload Token] [${sessionId}] onBeforeGenerateToken - pathname:`, pathname)
         
         // 验证文件类型
         const allowedExtensions = ['.pdf', '.doc', '.docx', '.txt']
         const ext = pathname.toLowerCase().substring(pathname.lastIndexOf('.'))
         
         if (!allowedExtensions.includes(ext)) {
-          console.error('[Blob Upload Token] ❌ 不支持的文件类型:', ext)
+          console.error(`[Blob Upload Token] [${sessionId}] ❌ 不支持的文件类型:`, ext)
           throw new Error(`不支持的文件类型: ${ext}`)
         }
 
-        console.log('[Blob Upload Token] ✓ 文件类型验证通过:', ext)
+        console.log(`[Blob Upload Token] [${sessionId}] ✓ 文件类型验证通过:`, ext)
 
         return {
           allowedContentTypes: [
@@ -92,25 +83,26 @@ export async function POST(request: NextRequest) {
           ],
           maximumSizeInBytes: 500 * 1024 * 1024, // 500MB
           tokenPayload: JSON.stringify({
-            userId: session.user?.id,
-            userEmail: session.user?.email,
+            userId: userId,
+            userEmail: userEmail,
+            sessionId: sessionId,
             uploadedAt: new Date().toISOString(),
           }),
         }
       },
       onUploadCompleted: async ({ blob, tokenPayload }) => {
         // 文件上传完成后的回调
-        console.log('[Blob Upload Token] ✓ 文件上传完成:', blob.pathname)
+        console.log(`[Blob Upload Token] ✓ 文件上传完成:`, blob.pathname)
         try {
           const payload = JSON.parse(tokenPayload || '{}')
-          console.log('[Blob Upload Token] 上传用户:', payload.userEmail)
+          console.log(`[Blob Upload Token] 上传用户: ${payload.userEmail} (ID: ${payload.userId})`)
         } catch (e) {
           // ignore parse error
         }
       },
     })
 
-    console.log('[Blob Upload Token] ✓ handleUpload 成功')
+    console.log(`[Blob Upload Token] [${sessionId}] ✓ handleUpload 成功`)
     console.log('[Blob Upload Token] ========== 请求处理完成 ==========')
     return NextResponse.json(jsonResponse)
   } catch (error: any) {

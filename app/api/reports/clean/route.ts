@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
+import { validateSession } from '@/lib/session-validator'
 import { analysisStore } from '@/lib/store'
 
 export const dynamic = 'force-dynamic'
@@ -8,12 +7,17 @@ export const dynamic = 'force-dynamic'
 // Clean stale processing reports (用户只能清理自己的)
 export async function POST(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions)
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    // ★★★ 使用增强的Session验证 ★★★
+    const sessionResult = await validateSession(request, 'Clean API POST')
+    if (!sessionResult.valid) {
+      return NextResponse.json(
+        { error: sessionResult.error },
+        { status: sessionResult.status }
+      )
     }
 
-    const userId = session.user.id
+    const userId = sessionResult.session.userId
+    const sessionId = sessionResult.session.sessionId
 
     // Get optional maxAgeMinutes from request body
     let maxAgeMinutes = 10 // Default: 10 minutes
@@ -29,7 +33,7 @@ export async function POST(request: NextRequest) {
     // ★ 传入userId，只清理用户自己的数据
     const deletedCount = await analysisStore.deleteStale(userId, maxAgeMinutes)
     
-    console.log(`[Clean API] User ${userId} deleted ${deletedCount} stale reports`)
+    console.log(`[Clean API] [${sessionId}] 用户 ${userId} 删除了 ${deletedCount} 条过期报告`)
     
     return NextResponse.json({ 
       success: true, 
@@ -48,17 +52,22 @@ export async function POST(request: NextRequest) {
 // Clear ALL user's reports (use with caution)
 export async function DELETE(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions)
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    // ★★★ 使用增强的Session验证 ★★★
+    const sessionResult = await validateSession(request, 'Clean API DELETE')
+    if (!sessionResult.valid) {
+      return NextResponse.json(
+        { error: sessionResult.error },
+        { status: sessionResult.status }
+      )
     }
 
-    const userId = session.user.id
+    const userId = sessionResult.session.userId
+    const sessionId = sessionResult.session.sessionId
 
     // ★ 只清理用户自己的数据
     const deletedCount = await analysisStore.clearUser(userId)
     
-    console.log(`[Clean API] User ${userId} cleared ${deletedCount} reports`)
+    console.log(`[Clean API] [${sessionId}] 用户 ${userId} 清空了 ${deletedCount} 条报告`)
     
     return NextResponse.json({ 
       success: true, 
@@ -77,12 +86,16 @@ export async function DELETE(request: NextRequest) {
 // Get count of stale reports (用户只能查看自己的)
 export async function GET(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions)
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    // ★★★ 使用增强的Session验证 ★★★
+    const sessionResult = await validateSession(request, 'Clean API GET')
+    if (!sessionResult.valid) {
+      return NextResponse.json(
+        { error: sessionResult.error },
+        { status: sessionResult.status }
+      )
     }
 
-    const userId = session.user.id
+    const userId = sessionResult.session.userId
 
     // ★ 只获取用户自己的数据
     const all = await analysisStore.getAll(userId)

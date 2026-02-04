@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
+import { validateSession } from '@/lib/session-validator'
 import { analysisStore } from '@/lib/store'
 
 export const dynamic = 'force-dynamic'
@@ -11,12 +10,17 @@ export async function DELETE(
   { params }: { params: { id: string } }
 ) {
   try {
-    const session = await getServerSession(authOptions)
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    // ★★★ 使用增强的Session验证 ★★★
+    const sessionResult = await validateSession(request, 'Reports DELETE')
+    if (!sessionResult.valid) {
+      return NextResponse.json(
+        { error: sessionResult.error },
+        { status: sessionResult.status }
+      )
     }
 
-    const userId = session.user.id
+    const userId = sessionResult.session.userId
+    const sessionId = sessionResult.session.sessionId
     const { id } = params
     
     if (!id) {
@@ -27,7 +31,7 @@ export async function DELETE(
     const deleted = await analysisStore.delete(userId, id)
     
     if (deleted) {
-      console.log(`[Reports API] User ${userId} deleted report: ${id}`)
+      console.log(`[Reports API] [${sessionId}] 用户 ${userId} 删除报告: ${id}`)
       return NextResponse.json({ success: true, message: `Report ${id} deleted` })
     } else {
       return NextResponse.json({ error: 'Report not found or access denied' }, { status: 404 })
@@ -47,12 +51,17 @@ export async function GET(
   { params }: { params: { id: string } }
 ) {
   try {
-    const session = await getServerSession(authOptions)
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    // ★★★ 使用增强的Session验证 ★★★
+    const sessionResult = await validateSession(request, 'Reports GET')
+    if (!sessionResult.valid) {
+      return NextResponse.json(
+        { error: sessionResult.error },
+        { status: sessionResult.status }
+      )
     }
 
-    const userId = session.user.id
+    const userId = sessionResult.session.userId
+    const sessionId = sessionResult.session.sessionId
     const { id } = params
     
     if (!id) {
@@ -63,6 +72,11 @@ export async function GET(
     const report = await analysisStore.get(userId, id)
     
     if (report) {
+      // ★★★ 双重验证：确保返回的数据确实属于当前用户 ★★★
+      if (report.user_id && report.user_id !== userId) {
+        console.error(`[Reports API] [${sessionId}] ❌ 数据访问被拒绝: 报告属于用户 ${report.user_id}，当前用户是 ${userId}`)
+        return NextResponse.json({ error: 'Report not found or access denied' }, { status: 404 })
+      }
       return NextResponse.json({ report })
     } else {
       return NextResponse.json({ error: 'Report not found or access denied' }, { status: 404 })
