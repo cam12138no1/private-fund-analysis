@@ -326,62 +326,152 @@ export default function UploadModal({ isOpen, onClose, onSuccess }: UploadModalP
 
       // ★★★ 第二步：调用分析API，传递Blob URL而不是文件 ★★★
       console.log('[前端] 发送请求到 /api/reports/analyze')
-      const response = await fetch('/api/reports/analyze', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          financialFiles: uploadedFinancialFiles,
-          researchFiles: uploadedResearchFiles,
-          category: selectedCategory,
-          requestId: requestId,
-          fiscalYear: selectedYear,
-          fiscalQuarter: selectedQuarter,
-        }),
-        signal: abortControllerRef.current.signal,
-      })
-
-      // 检查是否是当前请求
-      if (currentRequestIdRef.current !== requestId) {
-        console.log('[前端] ⚠️ 请求ID不匹配，忽略响应')
-        return
-      }
-
-      console.log('[前端] 收到响应，状态:', response.status)
-
-      if (!response.ok) {
-        const result = await response.json()
-        throw new Error(result.error || '分析失败')
-      }
-
-      const result = await response.json()
-      console.log('[前端] ✓ 分析成功，analysis_id:', result.analysis_id)
       
-      setAnalysisStatus('success')
+      // ★★★ 新增：超时处理和状态轮询机制 ★★★
+      const FETCH_TIMEOUT = 120000 // 2分钟超时
+      const POLL_INTERVAL = 3000 // 3秒轮询一次
+      const MAX_POLL_TIME = 300000 // 最多轮询5分钟
       
-      toast({
-        title: '分析完成',
-        description: `${result.metadata?.company_name || '公司'} 财报分析已完成`,
-      })
+      let analysisId: string | null = null
+      let fetchSucceeded = false
       
-      onSuccess()
-      
-      // 1.5秒后关闭并重置
-      setTimeout(() => {
-        if (currentRequestIdRef.current === requestId) {
-          setFinancialFiles([])
-          setResearchFiles([])
-          setSelectedCategory(null)
-          setSelectedYear(currentYear)
-          setSelectedQuarter(4)
-          setAnalysisStatus('idle')
-          setUploadProgress('')
-          isSubmittingRef.current = false
-          currentRequestIdRef.current = null
-          onClose()
+      try {
+        // 创建超时控制器
+        const timeoutController = new AbortController()
+        const timeoutId = setTimeout(() => timeoutController.abort(), FETCH_TIMEOUT)
+        
+        // 合并abort信号
+        const combinedSignal = abortControllerRef.current.signal
+        combinedSignal.addEventListener('abort', () => timeoutController.abort())
+        
+        const response = await fetch('/api/reports/analyze', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            financialFiles: uploadedFinancialFiles,
+            researchFiles: uploadedResearchFiles,
+            category: selectedCategory,
+            requestId: requestId,
+            fiscalYear: selectedYear,
+            fiscalQuarter: selectedQuarter,
+          }),
+          signal: timeoutController.signal,
+        })
+        
+        clearTimeout(timeoutId)
+        
+        // 检查是否是当前请求
+        if (currentRequestIdRef.current !== requestId) {
+          console.log('[前端] ⚠️ 请求ID不匹配，忽略响应')
+          return
         }
-      }, 1500)
+        
+        console.log('[前端] 收到响应，状态:', response.status)
+        
+        if (!response.ok) {
+          const result = await response.json()
+          throw new Error(result.error || '分析失败')
+        }
+        
+        const result = await response.json()
+        analysisId = result.analysis_id
+        fetchSucceeded = true
+        console.log('[前端] ✓ 分析成功，analysis_id:', analysisId)
+        
+      } catch (fetchError: any) {
+        // 如果是超时或网络错误，尝试轮询状态
+        if (fetchError.name === 'AbortError' || fetchError.message === 'Failed to fetch') {
+          console.log('[前端] 请求超时或网络错误，开始轮询状态...')
+          setUploadProgress('正在检查分析状态...')
+          
+          // 轮询检查后台是否已完成
+          const pollStartTime = Date.now()
+          let pollSuccess = false
+          
+          while (Date.now() - pollStartTime < MAX_POLL_TIME) {
+            if (currentRequestIdRef.current !== requestId) {
+              console.log('[前端] 轮询时请求ID变化，停止轮询')
+              return
+            }
+            
+            try {
+              // 查询最新的dashboard数据
+              const statusResponse = await fetch('/api/dashboard')
+              if (statusResponse.ok) {
+                const statusData = await statusResponse.json()
+                
+                // 查找匹配的分析记录（通过requestId匹配）
+                const matchingAnalysis = statusData.analyses?.find(
+                  (a: any) => a.request_id === requestId || a.id === `req_${requestId}`
+                )
+                
+                if (matchingAnalysis) {
+                  console.log('[前端] 找到匹配的分析记录:', matchingAnalysis.id)
+                  
+                  if (matchingAnalysis.processed && !matchingAnalysis.error) {
+                    // 分析已完成
+                    console.log('[前端] ✓ 后台分析已完成')
+                    analysisId = matchingAnalysis.id
+                    fetchSucceeded = true
+                    pollSuccess = true
+                    break
+                  } else if (matchingAnalysis.error) {
+                    // 分析失败
+                    throw new Error(matchingAnalysis.error)
+                  } else if (matchingAnalysis.processing) {
+                    // 仍在处理中
+                    const elapsed = Math.round((Date.now() - pollStartTime) / 1000)
+                    setUploadProgress(`AI正在分析中... (已耗时 ${elapsed} 秒)`)
+                  }
+                }
+              }
+            } catch (pollError) {
+              console.error('[前端] 轮询出错:', pollError)
+            }
+            
+            // 等待后继续轮询
+            await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL))
+          }
+          
+          if (!pollSuccess) {
+            throw new Error('分析超时，请稍后刷新页面查看结果')
+          }
+        } else {
+          // 其他错误直接抛出
+          throw fetchError
+        }
+      }
+      
+      // 成功处理
+      if (fetchSucceeded) {
+        setAnalysisStatus('success')
+        setUploadProgress('')
+        
+        toast({
+          title: '分析完成',
+          description: '财报分析已完成',
+        })
+        
+        onSuccess()
+        
+        // 1.5秒后关闭并重置
+        setTimeout(() => {
+          if (currentRequestIdRef.current === requestId) {
+            setFinancialFiles([])
+            setResearchFiles([])
+            setSelectedCategory(null)
+            setSelectedYear(currentYear)
+            setSelectedQuarter(4)
+            setAnalysisStatus('idle')
+            setUploadProgress('')
+            isSubmittingRef.current = false
+            currentRequestIdRef.current = null
+            onClose()
+          }
+        }, 1500)
+      }
       
     } catch (error: any) {
       if (error.name === 'AbortError') {
