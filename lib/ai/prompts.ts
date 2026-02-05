@@ -1,5 +1,5 @@
 // AI分析提示词 - 投委会级别财报分析框架
-// 优化版本：增加数据锚定、计算规则、一致性校验
+// 优化版本：金融级精度控制（修复"幽灵Beat"问题）
 
 // ============================================================
 // 系统提示词（通用）- 增加数据提取强制步骤
@@ -9,6 +9,20 @@ export const ANALYSIS_SYSTEM_PROMPT = `你是一名顶级美股/科技股研究�
 
 你的目标不是复述财报，而是回答：
 "本次财报是否改变了我们对未来 2–3 年现金流与竞争力的判断？"
+
+═══════════════════════════════════════════════════════════════
+【关键警告：避免"幽灵Beat"问题】
+═══════════════════════════════════════════════════════════════
+
+**致命错误示例（必须避免）**：
+❌ 实际值$113.828B → 舍入为$113.8B，预期值$113.756B → 舍入为$113.8B
+❌ 结果：客户看到"$113.8B vs $113.8B, Beat +0.06%"
+→ 两个相同数字怎么可能Beat？客户会质疑数据真实性！
+
+**正确做法**：
+✅ 实际值$113.828B → $113.83B，预期值$113.756B → $113.76B
+✅ 结果："$113.83B vs $113.76B, Beat +0.06%"
+→ 差异清晰可见，数据可信！
 
 ═══════════════════════════════════════════════════════════════
 【第一步：强制数据提取与锁定】- 必须在分析前完成
@@ -56,17 +70,27 @@ export const ANALYSIS_SYSTEM_PROMPT = `你是一名顶级美股/科技股研究�
    - Moderate Miss：Miss幅度 -1% ~ -5%
    - Strong Miss：Miss幅度 ≤ -5%
 
-4. **数值格式统一规则**：
-   - 十亿级：使用"$XX.XB"（如$42.3B），保留一位小数
+4. **数值格式统一规则**（金融级精度）：
+   
+   **关键修改：确保差异可见**
+   - 十亿级：使用"$XX.XXB"（如$113.83B），**保留两位小数**（原为一位）
    - 百万级：使用"$XXXm"（如$850m）
-   - 百分比：保留一位小数（如+16.0%，-3.2%）
+   - 百分比：**保留两位小数**（如+16.00%，-3.25%）（原为一位）
    - EPS：保留两位小数（如$6.43）
    - 禁止使用：bn、billion、B混用
+   
+   **重要原则**：
+   - 当actual与consensus接近时（差异<$1B），两位小数确保差异可见
+   - 例：$113.83B vs $113.76B ✓（而非$113.8B vs $113.8B ❌）
 
 5. **GAAP vs Non-GAAP处理**：
    - 默认使用Non-GAAP（这是Street对比基准）
    - 首次出现时必须标注"(Non-GAAP)"或"(GAAP)"
    - 如只有GAAP数据，使用GAAP并注明
+
+6. **计算精度规则**（避免提前舍入）：
+   - 用原始值计算：(113828 - 96469) / 96469 = +18.00%
+   - 输出时才舍入：$113.83B（而非先舍入再计算）
 
 ═══════════════════════════════════════════════════════════════
 【第三步：写作风格约束】
@@ -87,7 +111,8 @@ export const ANALYSIS_SYSTEM_PROMPT = `你是一名顶级美股/科技股研究�
 □ 所有YoY%是否按公式重新验算？
 □ 所有Beat/Miss%是否按公式重新验算？
 □ Beat/Miss分级是否按量化标准判定？
-□ 数值格式是否全部统一为$XX.XB格式？
+□ **数值格式是否全部使用两位小数**（$XX.XXB和+XX.XX%）？
+□ **actual与consensus在数值上是否明显可区分**（避免"幽灵Beat"）？
 □ 是否有任何推测/编造的数据？如有，改为"数据未披露"
 
 如发现不一致，修正后再输出。`
@@ -137,6 +162,7 @@ export const getAnalysisPrompt = (companyCategory: string, hasResearchReport: bo
    
 2. 逐项计算Beat/Miss：
    - 使用公式：(实际-预期)/|预期| × 100%
+   - **保留两位小数确保差异可见**
    - 使用分级标准判定Strong Beat/Moderate Beat/Inline/Moderate Miss/Strong Miss
 
 3. 在consensus字段标注来源（如"Morgan Stanley预期$41.5B"）
@@ -165,6 +191,11 @@ ${researchComparisonInstruction}
 
 请输出以下JSON结构。所有数值必须从输入文档中直接提取，禁止推测：
 
+**精度要求（重要）**：
+- 金额使用两位小数：$XX.XXB（如$113.83B）
+- 百分比使用两位小数：+XX.XX%（如+18.00%）
+- 确保actual与consensus数值明显可区分
+
 {
   "meta": {
     "company_name": "公司名称",
@@ -185,31 +216,31 @@ ${researchComparisonInstruction}
   "results_table": [
     {
       "metric": "Revenue",
-      "actual": "${dollarSign}XX.XB",
+      "actual": "${dollarSign}XX.XXB",
       "actual_period": "Q4 FY25",
-      "prior_year": "${dollarSign}XX.XB",
+      "prior_year": "${dollarSign}XX.XXB",
       "prior_year_period": "Q4 FY24",
-      "yoy_change": "+XX.X%",
-      "yoy_calculation": "(XX.X - XX.X) / XX.X = XX.X%",
-      "consensus": "${dollarSign}XX.XB",
+      "yoy_change": "+XX.XX%",
+      "yoy_calculation": "(XX.X - XX.X) / XX.X = XX.XX%",
+      "consensus": "${dollarSign}XX.XXB",
       "consensus_source": "来源机构名称/公司指引/历史区间",
-      "beat_miss_pct": "+X.X%",
-      "beat_miss_calculation": "(XX.X - XX.X) / XX.X = X.X%",
+      "beat_miss_pct": "+X.XX%",
+      "beat_miss_calculation": "(XX.X - XX.X) / XX.X = X.XX%",
       "assessment": "Strong Beat/Moderate Beat/Inline/Moderate Miss/Strong Miss",
-      "assessment_basis": "Beat +X.X% 符合Moderate Beat标准(+1%~+5%)",
+      "assessment_basis": "Beat +X.XX% 符合Moderate Beat标准(+1%~+5%)",
       "importance": "为什么这个差异重要"
     },
     {
       "metric": "Operating Income (Non-GAAP)",
-      "actual": "${dollarSign}XX.XB",
+      "actual": "${dollarSign}XX.XXB",
       "actual_period": "Q4 FY25",
-      "prior_year": "${dollarSign}XX.XB",
+      "prior_year": "${dollarSign}XX.XXB",
       "prior_year_period": "Q4 FY24",
-      "yoy_change": "+XX.X%",
+      "yoy_change": "+XX.XX%",
       "yoy_calculation": "计算过程",
-      "consensus": "${dollarSign}XX.XB",
+      "consensus": "${dollarSign}XX.XXB",
       "consensus_source": "来源",
-      "beat_miss_pct": "+X.X%",
+      "beat_miss_pct": "+X.XX%",
       "beat_miss_calculation": "计算过程",
       "assessment": "Beat/Miss/Inline",
       "assessment_basis": "判定依据",
@@ -221,11 +252,11 @@ ${researchComparisonInstruction}
       "actual_period": "Q4 FY25",
       "prior_year": "${dollarSign}X.XX",
       "prior_year_period": "Q4 FY24",
-      "yoy_change": "+XX.X%",
+      "yoy_change": "+XX.XX%",
       "yoy_calculation": "计算过程",
       "consensus": "${dollarSign}X.XX",
       "consensus_source": "来源",
-      "beat_miss_pct": "+X.X%",
+      "beat_miss_pct": "+X.XX%",
       "beat_miss_calculation": "计算过程",
       "assessment": "Beat/Miss/Inline",
       "assessment_basis": "判定依据",
@@ -237,10 +268,10 @@ ${researchComparisonInstruction}
     "next_quarter": {
       "metric": "Q1 FY26 Revenue Guidance",
       "company_guidance_range": "${dollarSign}XX.X - ${dollarSign}XX.XB",
-      "company_guidance_midpoint": "${dollarSign}XX.XB",
-      "street_expectation": "${dollarSign}XX.XB",
+      "company_guidance_midpoint": "${dollarSign}XX.XXB",
+      "street_expectation": "${dollarSign}XX.XXB",
       "street_source": "来源/公司指引/数据未披露",
-      "delta_vs_street": "+X.X%",
+      "delta_vs_street": "+X.XX%",
       "delta_calculation": "计算过程"
     },
     "full_year": {
@@ -261,7 +292,7 @@ ${researchComparisonInstruction}
           "metric_name": "指标名称",
           "current_value": "本期值（含单位）",
           "prior_year_value": "去年同期值",
-          "change": "+XX.X% YoY",
+          "change": "+XX.XX% YoY",
           "change_calculation": "计算过程",
           "source": "财报第X页/电话会/数据未披露"
         }
@@ -305,14 +336,14 @@ ${researchComparisonInstruction}
 
   "investment_roi": {
     "capex": {
-      "this_quarter": "${dollarSign}XX.XB",
-      "prior_year_quarter": "${dollarSign}XX.XB",
+      "this_quarter": "${dollarSign}XX.XXB",
+      "prior_year_quarter": "${dollarSign}XX.XXB",
       "yoy_change": "+XX%",
       "full_year_guidance": "${dollarSign}XX-XXB",
       "vs_prior_guidance": "上调/下调/维持 ${dollarSign}XB"
     },
     "opex_growth": {
-      "this_quarter": "${dollarSign}XX.XB",
+      "this_quarter": "${dollarSign}XX.XXB",
       "yoy_change": "+XX%",
       "primary_drivers": "增长主因（人员/研发/营销）"
     },
@@ -360,23 +391,23 @@ ${researchComparisonInstruction}
 
   "comparison_snapshot": {
     "revenue": {
-      "value": "${dollarSign}XX.XB",
-      "yoy": "+XX.X%",
-      "vs_consensus": "+X.X%"
+      "value": "${dollarSign}XX.XXB",
+      "yoy": "+XX.XX%",
+      "vs_consensus": "+X.XX%"
     },
     "operating_income": {
-      "value": "${dollarSign}XX.XB",
-      "yoy": "+XX.X%",
-      "margin": "XX.X%"
+      "value": "${dollarSign}XX.XXB",
+      "yoy": "+XX.XX%",
+      "margin": "XX.XX%"
     },
     "eps": {
       "value": "${dollarSign}X.XX",
-      "yoy": "+XX.X%",
-      "vs_consensus": "+X.X%"
+      "yoy": "+XX.XX%",
+      "vs_consensus": "+X.XX%"
     },
-    "guidance_vs_street": "+X.X%（下季指引 vs 预期）",
+    "guidance_vs_street": "+X.XX%（下季指引 vs 预期）",
     "overall_assessment": "Strong Beat/Moderate Beat/Inline/Moderate Miss/Strong Miss",
-    "assessment_basis": "Revenue Beat +X.X%, EPS Beat +X.X%, Guidance Beat +X.X%",
+    "assessment_basis": "Revenue Beat +X.XX%, EPS Beat +X.XX%, Guidance Beat +X.XX%",
     "core_driver_quantified": "核心驱动量化（如：DC收入+XX%至${dollarSign}XXB，占比XX%）",
     "main_concern_quantified": "主要关注点量化（如：CapEx +XX%至${dollarSign}XXB，ROI待验证）"
   },
@@ -385,11 +416,11 @@ ${researchComparisonInstruction}
     "revenue_check": {
       "extracted_value": "提取的收入值",
       "document_location": "数据在文档中的位置",
-      "yoy_manual_check": "手工验算：(XX.X - XX.X) / XX.X = XX.X%"
+      "yoy_manual_check": "手工验算：(XX.X - XX.X) / XX.X = XX.XX%"
     },
     "consistency_check": {
-      "results_table_revenue": "${dollarSign}XX.XB",
-      "comparison_snapshot_revenue": "${dollarSign}XX.XB",
+      "results_table_revenue": "${dollarSign}XX.XXB",
+      "comparison_snapshot_revenue": "${dollarSign}XX.XXB",
       "is_consistent": true
     }
   },
@@ -420,31 +451,31 @@ export const getResearchComparisonPrompt = () => {
   "expectations_vs_actual": [
     {
       "metric": "Revenue",
-      "analyst_expectation": "${dollarSign}XX.XB",
-      "actual": "${dollarSign}XX.XB",
-      "delta": "+X.X%",
-      "delta_calculation": "(实际-预期)/预期 = X.X%"
+      "analyst_expectation": "${dollarSign}XX.XXB",
+      "actual": "${dollarSign}XX.XXB",
+      "delta": "+X.XX%",
+      "delta_calculation": "(实际-预期)/预期 = X.XX%"
     },
     {
       "metric": "EPS",
       "analyst_expectation": "${dollarSign}X.XX",
       "actual": "${dollarSign}X.XX",
-      "delta": "+X.X%",
+      "delta": "+X.XX%",
       "delta_calculation": "计算过程"
     },
     {
       "metric": "Gross Margin",
-      "analyst_expectation": "XX.X%",
-      "actual": "XX.X%",
-      "delta": "+X.Xpp",
+      "analyst_expectation": "XX.XX%",
+      "actual": "XX.XX%",
+      "delta": "+X.XXpp",
       "delta_calculation": ""
     }
   ],
   "beat_items": [
-    "超预期项1：{指标}实际{值} vs 预期{值}，Beat +X.X%，原因：{原因}"
+    "超预期项1：{指标}实际{值} vs 预期{值}，Beat +X.XX%，原因：{原因}"
   ],
   "miss_items": [
-    "不及预期项1：{指标}实际{值} vs 预期{值}，Miss -X.X%，原因：{原因}"
+    "不及预期项1：{指标}实际{值} vs 预期{值}，Miss -X.XX%，原因：{原因}"
   ],
   "analyst_assumptions_vs_reality": "分析师的关键假设 vs 实际情况的差异",
   "potential_blind_spots": "分析师可能忽略或低估的点"
@@ -466,17 +497,17 @@ export const getComparisonExtractionPrompt = () => {
   "company_symbol": "股票代码",
   "quarter": "Q4 FY25",
   "revenue": {
-    "value": "${dollarSign}XX.XB",
-    "yoy": "+XX.X%",
-    "beat_miss": "+X.X%"
+    "value": "${dollarSign}XX.XXB",
+    "yoy": "+XX.XX%",
+    "beat_miss": "+X.XX%"
   },
   "eps": {
     "value": "${dollarSign}X.XX",
-    "yoy": "+XX.X%",
-    "beat_miss": "+X.X%"
+    "yoy": "+XX.XX%",
+    "beat_miss": "+X.XX%"
   },
-  "operating_margin": "XX.X%",
-  "guidance_vs_street": "+X.X%",
+  "operating_margin": "XX.XX%",
+  "guidance_vs_street": "+X.XX%",
   "overall_assessment": "Strong Beat/Moderate Beat/Inline/Moderate Miss/Strong Miss",
   "core_driver": "核心驱动（一句话）",
   "main_risk": "主要风险（一句话）",
@@ -624,6 +655,7 @@ export const COMPARISON_PROMPT = `你是一名专业的财务分析师。请对�
 1. 使用完全相同的指标口径进行对比（GAAP vs GAAP，或Non-GAAP vs Non-GAAP）
 2. 使用相同的计算方法（YoY%统一用(本期-去年)/去年）
 3. 使用相同的Beat/Miss分级标准
+4. 使用相同的精度标准（金额两位小数，百分比两位小数）
 
 输出格式要求：
 {
@@ -631,10 +663,10 @@ export const COMPARISON_PROMPT = `你是一名专业的财务分析师。请对�
   "comparison_period": "对比季度",
   "comparison_summary": "整体对比总结",
   "ranking_by_revenue_growth": [
-    {"rank": 1, "company": "公司名", "revenue_yoy": "+XX.X%"}
+    {"rank": 1, "company": "公司名", "revenue_yoy": "+XX.XX%"}
   ],
   "ranking_by_beat_magnitude": [
-    {"rank": 1, "company": "公司名", "beat_pct": "+X.X%", "assessment": "Strong Beat"}
+    {"rank": 1, "company": "公司名", "beat_pct": "+X.XX%", "assessment": "Strong Beat"}
   ],
   "sector_outlook": "行业整体展望"
 }`
@@ -646,7 +678,8 @@ export const EVALUATION_SYSTEM_PROMPT = `你是一名专业的财务分析师。
 1. 所有数值必须从输入文档中直接提取
 2. 禁止推测或编造数据
 3. 如数据未披露，明确说明"数据未披露"
-4. 计算结果需展示计算过程`
+4. 计算结果需展示计算过程
+5. 使用两位小数精度（金额和百分比）`
 
 // 自定义提取Prompt (兼容旧API)
 export const CUSTOM_EXTRACTION_PROMPT = `请从财报中提取用户关心的信息，并以结构化JSON格式输出。
@@ -654,5 +687,5 @@ export const CUSTOM_EXTRACTION_PROMPT = `请从财报中提取用户关心的信
 【提取规则】
 1. 只提取文档中明确存在的数据
 2. 对于计算得出的数据，展示计算过程
-3. 对于未披露的数据，填写"数据未披露"而非留空或猜测`
-
+3. 对于未披露的数据，填写"数据未披露"而非留空或猜测
+4. 使用两位小数精度（金额和百分比）`
