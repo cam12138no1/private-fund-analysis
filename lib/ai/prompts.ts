@@ -70,18 +70,31 @@ export const ANALYSIS_SYSTEM_PROMPT = `你是一名顶级美股/科技股研究�
    - Moderate Miss：Miss幅度 -1% ~ -5%
    - Strong Miss：Miss幅度 ≤ -5%
 
-4. **数值格式统一规则**（金融级精度）：
+4. **数值格式统一规则**（金融级精度 - 强制执行）：
    
-   **关键修改：确保差异可见**
-   - 十亿级：使用"$XX.XXB"（如$113.83B），**保留两位小数**（原为一位）
+   **❌ 绝对禁止使用一位小数：**
+   - $113.8B ❌ 错误
+   - $17.7B ❌ 错误  
+   - $35.9B ❌ 错误
+   - +2.7% ❌ 错误
+   
+   **✅ 必须使用两位小数：**
+   - $113.83B ✓ 正确（不是$113.8B）
+   - $17.66B ✓ 正确（不是$17.7B）
+   - $35.93B ✓ 正确（不是$35.9B）
+   - +2.74% ✓ 正确（不是+2.7%）
+   
+   **强制格式规则：**
+   - 十亿级金额：**必须**"$XX.XXB"格式，例如$113.83B（X代表数字，必须有两位小数）
+   - 百分比：**必须**两位小数，例如+16.00%、+2.74%（不能是+16.0%或+2.7%）
+   - EPS：**必须**两位小数，例如$2.82（不能是$2.8）
    - 百万级：使用"$XXXm"（如$850m）
-   - 百分比：**保留两位小数**（如+16.00%，-3.25%）（原为一位）
-   - EPS：保留两位小数（如$6.43）
    - 禁止使用：bn、billion、B混用
    
-   **重要原则**：
-   - 当actual与consensus接近时（差异<$1B），两位小数确保差异可见
-   - 例：$113.83B vs $113.76B ✓（而非$113.8B vs $113.8B ❌）
+   **验证规则（输出前必须检查）**：
+   - 搜索输出中所有"B"：每个数字前是否有恰好两位小数？
+   - 搜索输出中所有"%"：每个百分比是否有恰好两位小数？
+   - 如果发现$XX.XB格式（只有一位小数），立即改为$XX.XXB
 
 5. **GAAP vs Non-GAAP处理**：
    - 默认使用Non-GAAP（这是Street对比基准）
@@ -111,11 +124,20 @@ export const ANALYSIS_SYSTEM_PROMPT = `你是一名顶级美股/科技股研究�
 □ 所有YoY%是否按公式重新验算？
 □ 所有Beat/Miss%是否按公式重新验算？
 □ Beat/Miss分级是否按量化标准判定？
-□ **数值格式是否全部使用两位小数**（$XX.XXB和+XX.XX%）？
+□ **【关键】所有金额是否使用$XX.XXB格式（两位小数）？**
+□ **【关键】所有百分比是否使用XX.XX%格式（两位小数）？**
+□ **【关键】不存在$XX.XB格式（一位小数）的金额？**
+□ **【关键】不存在XX.X%格式（一位小数）的百分比？**
 □ **actual与consensus在数值上是否明显可区分**（避免"幽灵Beat"）？
 □ 是否有任何推测/编造的数据？如有，改为"数据未披露"
 
-如发现不一致，修正后再输出。`
+**精度验证方法**：
+1. 在输出的JSON中全局搜索"B"，检查每个金额是否是$XX.XXB格式
+2. 在输出的JSON中全局搜索"%"，检查每个百分比是否是XX.XX%格式  
+3. 如果发现$113.8B，必须改为$113.83B（从原始数据重新计算）
+4. 如果发现+2.7%，必须改为+2.74%（从原始数据重新计算）
+
+如发现不一致或格式错误，修正后再输出。`
 
 
 // ============================================================
@@ -191,10 +213,14 @@ ${researchComparisonInstruction}
 
 请输出以下JSON结构。所有数值必须从输入文档中直接提取，禁止推测：
 
-**精度要求（重要）**：
-- 金额使用两位小数：$XX.XXB（如$113.83B）
-- 百分比使用两位小数：+XX.XX%（如+18.00%）
-- 确保actual与consensus数值明显可区分
+**【强制精度要求】- 违反将导致输出无效**：
+1. 金额格式：$XX.XXB（必须两位小数）
+   - ✅ 正确：$113.83B, $17.66B, $35.93B
+   - ❌ 错误：$113.8B, $17.7B, $35.9B
+2. 百分比格式：XX.XX%（必须两位小数）
+   - ✅ 正确：+18.00%, +2.74%, -0.53%
+   - ❌ 错误：+18.0%, +2.7%, -0.5%
+3. 检查方法：输出前搜索所有"B"和"%"，确认每个都是两位小数
 
 {
   "meta": {
@@ -216,49 +242,49 @@ ${researchComparisonInstruction}
   "results_table": [
     {
       "metric": "Revenue",
-      "actual": "${dollarSign}XX.XXB",
+      "actual": "${dollarSign}113.83B",
       "actual_period": "Q4 FY25",
-      "prior_year": "${dollarSign}XX.XXB",
+      "prior_year": "${dollarSign}96.47B",
       "prior_year_period": "Q4 FY24",
-      "yoy_change": "+XX.XX%",
-      "yoy_calculation": "(XX.X - XX.X) / XX.X = XX.XX%",
-      "consensus": "${dollarSign}XX.XXB",
+      "yoy_change": "+18.00%",
+      "yoy_calculation": "(113828 - 96469) / 96469 = +18.00%",
+      "consensus": "${dollarSign}110.83B",
       "consensus_source": "来源机构名称/公司指引/历史区间",
-      "beat_miss_pct": "+X.XX%",
-      "beat_miss_calculation": "(XX.X - XX.X) / XX.X = X.XX%",
-      "assessment": "Strong Beat/Moderate Beat/Inline/Moderate Miss/Strong Miss",
-      "assessment_basis": "Beat +X.XX% 符合Moderate Beat标准(+1%~+5%)",
+      "beat_miss_pct": "+2.74%",
+      "beat_miss_calculation": "(113828 - 110826) / 110826 = +2.74%",
+      "assessment": "Moderate Beat",
+      "assessment_basis": "Beat +2.74% 符合Moderate Beat标准(+1%~+5%)",
       "importance": "为什么这个差异重要"
     },
     {
       "metric": "Operating Income (Non-GAAP)",
-      "actual": "${dollarSign}XX.XXB",
+      "actual": "${dollarSign}35.93B",
       "actual_period": "Q4 FY25",
-      "prior_year": "${dollarSign}XX.XXB",
+      "prior_year": "${dollarSign}30.97B",
       "prior_year_period": "Q4 FY24",
-      "yoy_change": "+XX.XX%",
+      "yoy_change": "+16.03%",
       "yoy_calculation": "计算过程",
-      "consensus": "${dollarSign}XX.XXB",
+      "consensus": "${dollarSign}35.90B",
       "consensus_source": "来源",
-      "beat_miss_pct": "+X.XX%",
+      "beat_miss_pct": "+0.08%",
       "beat_miss_calculation": "计算过程",
-      "assessment": "Beat/Miss/Inline",
+      "assessment": "Inline",
       "assessment_basis": "判定依据",
       "importance": "重要性说明"
     },
     {
       "metric": "EPS (Diluted, Non-GAAP)",
-      "actual": "${dollarSign}X.XX",
+      "actual": "${dollarSign}2.82",
       "actual_period": "Q4 FY25",
-      "prior_year": "${dollarSign}X.XX",
+      "prior_year": "${dollarSign}2.15",
       "prior_year_period": "Q4 FY24",
-      "yoy_change": "+XX.XX%",
+      "yoy_change": "+31.16%",
       "yoy_calculation": "计算过程",
-      "consensus": "${dollarSign}X.XX",
+      "consensus": "${dollarSign}2.81",
       "consensus_source": "来源",
-      "beat_miss_pct": "+X.XX%",
+      "beat_miss_pct": "+0.36%",
       "beat_miss_calculation": "计算过程",
-      "assessment": "Beat/Miss/Inline",
+      "assessment": "Inline",
       "assessment_basis": "判定依据",
       "importance": "重要性说明"
     }
